@@ -1,0 +1,17 @@
+{
+  "name": "panshakernode",
+  "version": "1.0.0",
+  "description": "这是一个为 Panshaker 研发和市场部门设计的轻量级、Win98 风格的工时记录系统。 主要用于统计国内员工耗费在海外项目上的工时，方便进行成本核算。",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1",
+    "sqlite3": "^5.1.7"
+  }
+}

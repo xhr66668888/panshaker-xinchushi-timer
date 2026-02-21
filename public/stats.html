@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>当月工时统计 - Panshaker</title>
+    <link rel="stylesheet" href="https://unpkg.com/98.css">
+    <style>
+        body {
+            background-color: #008080;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        .window {
+            width: 500px;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.5);
+        }
+
+        .window-body {
+            overflow: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            background: white;
+        }
+
+        th,
+        td {
+            border: 1px solid #999;
+            padding: 5px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #dfdfdf;
+        }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            gap: 10px;
+        }
+
+        .total-row {
+            font-weight: bold;
+            background-color: #ffffca;
+        }
+
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.4);
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            width: 600px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-content .window-body {
+            overflow: auto;
+            max-height: 60vh;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="window">
+        <div class="title-bar">
+            <div class="title-bar-text">海外项目当月国内工时核算</div>
+            <div class="title-bar-controls">
+                <button aria-label="Close" onclick="window.location.href='index.html'"></button>
+            </div>
+        </div>
+        <div class="window-body">
+
+            <div class="toolbar">
+                <label for="monthPicker">选择月份:</label>
+                <input type="month" id="monthPicker">
+                <button onclick="loadStats()">查询</button>
+                <div style="flex-grow:1;"></div>
+                <button onclick="logout()">注销退出</button>
+            </div>
+
+            <div class="sunken-panel" style="height: 300px; padding: 0;">
+                <table class="interactive">
+                    <thead>
+                        <tr>
+                            <th>姓名</th>
+                            <th>部门</th>
+                            <th>累计投入工时 (小时)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="statsTableBody">
+                        <tr>
+                            <td colspan="3" style="text-align: center;">加载中...</td>
+                        </tr>
+                    </tbody>
+                    <tfoot>
+                        <tr class="total-row">
+                            <td colspan="2">总计:</td>
+                            <td id="grandTotal">0.0</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Modal for Employee Details -->
+    <div id="detailsModal" class="modal">
+        <div class="window modal-content">
+            <div class="title-bar">
+                <div class="title-bar-text" id="detailsTitle">员工详情</div>
+                <div class="title-bar-controls">
+                    <button aria-label="Close" onclick="closeDetails()"></button>
+                </div>
+            </div>
+            <div class="window-body">
+                <div class="sunken-panel" style="padding: 0;">
+                    <table class="interactive">
+                        <thead>
+                            <tr>
+                                <th>日期</th>
+                                <th>时间段</th>
+                                <th>工作内容</th>
+                                <th>计入工时</th>
+                            </tr>
+                        </thead>
+                        <tbody id="detailsTableBody">
+                            <tr>
+                                <td colspan="4" style="text-align: center;">加载中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Auth check
+        if (localStorage.getItem('ps_role') !== 'boss') {
+            window.location.href = 'login.html';
+        }
+
+        function logout() {
+            localStorage.removeItem('ps_role');
+            window.location.href = 'login.html';
+        }
+
+        // Set default month to current month
+        const today = new Date();
+        const currentMonth = today.toISOString().slice(0, 7);
+        document.getElementById('monthPicker').value = currentMonth;
+
+        async function loadStats() {
+            const month = document.getElementById('monthPicker').value;
+            const tbody = document.getElementById('statsTableBody');
+            const grandTotal = document.getElementById('grandTotal');
+
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align: center;">加载中...</td></tr>';
+            grandTotal.innerText = '0.0';
+
+            try {
+                const res = await fetch(`/api/stats?month=${month}`);
+                if (!res.ok) throw new Error('网络错误');
+                const data = await res.json();
+
+                tbody.innerHTML = '';
+                let total = 0;
+
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" style="text-align: center;">该月无数据。</td></tr>';
+                    return;
+                }
+
+                data.forEach(stat => {
+                    total += stat.totalHours;
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                    <td><a href="#" onclick="showDetails('${stat.employeeName}')">${stat.employeeName}</a></td>
+                    <td>${stat.department}</td>
+                    <td>${stat.totalHours.toFixed(2)}</td>
+                `;
+                    tbody.appendChild(tr);
+                });
+
+                grandTotal.innerText = total.toFixed(2);
+
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: red;">加载失败: ${err.message}</td></tr>`;
+            }
+        }
+
+        async function showDetails(employeeName) {
+            const month = document.getElementById('monthPicker').value;
+            const modal = document.getElementById('detailsModal');
+            const title = document.getElementById('detailsTitle');
+            const tbody = document.getElementById('detailsTableBody');
+
+            title.innerText = `${employeeName} - ${month} 工作明细`;
+            modal.style.display = 'flex';
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">加载中...</td></tr>';
+
+            try {
+                const res = await fetch(`/api/records/employee/${encodeURIComponent(employeeName)}?month=${month}`);
+                if (!res.ok) throw new Error('网络错误');
+                const data = await res.json();
+
+                tbody.innerHTML = '';
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">无详细记录。</td></tr>';
+                    return;
+                }
+
+                data.forEach(rec => {
+                    const startStr = new Date(rec.StartTime).toLocaleString('zh-CN', { hour12: false });
+                    const endStr = new Date(rec.EndTime).toLocaleString('zh-CN', { hour12: false });
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${startStr.slice(0, 10)}</td>
+                        <td>${startStr.slice(11, 16)} - ${endStr.slice(11, 16)}</td>
+                        <td>${rec.TaskDescription}</td>
+                        <td>${rec.DurationHours.toFixed(2)}h</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: red;">加载失败: ${err.message}</td></tr>`;
+            }
+        }
+
+        function closeDetails() {
+            document.getElementById('detailsModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function (event) {
+            const modal = document.getElementById('detailsModal');
+            if (event.target == modal) {
+                closeDetails();
+            }
+        }
+
+        // Load static initially
+        loadStats();
+    </script>
+
+</body>
+
+</html>
