@@ -21,6 +21,7 @@
 
         .window {
             width: 450px;
+            max-width: 95%;
             box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.5);
         }
 
@@ -54,6 +55,54 @@
             margin-top: 15px;
             color: green;
             text-align: center;
+        }
+
+        /* Mobile specific adjustments */
+        @media (max-width: 600px) {
+            .window {
+                width: 95% !important;
+            }
+
+            .field-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 5px;
+            }
+
+            .field-row label {
+                width: auto;
+                text-align: left;
+            }
+
+            .field-row input[type="text"],
+            .field-row input[type="date"],
+            .field-row input[type="time"],
+            .field-row select {
+                width: 100%;
+                box-sizing: border-box;
+            }
+
+            /* Make datetime fields take full width together if needed, or stack */
+            .field-row input[style] {
+                margin-left: 0 !important;
+                margin-top: 5px;
+            }
+
+            table th,
+            table td {
+                padding: 2px;
+                font-size: 12px;
+            }
+
+            .button-group {
+                flex-wrap: wrap;
+                justify-content: space-between;
+            }
+
+            .button-group button {
+                flex: 1;
+                margin-bottom: 5px;
+            }
         }
     </style>
 </head>
@@ -120,7 +169,7 @@
         </div>
     </div>
 
-    <div class="window" style="width: 550px;">
+    <div class="window" style="width: 550px; max-width: 95%;">
         <div class="title-bar">
             <div class="title-bar-text">提交记录</div>
         </div>

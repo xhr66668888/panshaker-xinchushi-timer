@@ -19,6 +19,7 @@
 
         .window {
             width: 500px;
+            max-width: 95%;
             max-height: 90vh;
             display: flex;
             flex-direction: column;
@@ -83,6 +84,25 @@
         .modal-content .window-body {
             overflow: auto;
             max-height: 60vh;
+        }
+
+        /* Mobile specific adjustments */
+        @media (max-width: 600px) {
+            .toolbar {
+                flex-wrap: wrap;
+                justify-content: space-between;
+            }
+
+            table th,
+            table td {
+                padding: 2px;
+                font-size: 12px;
+            }
+
+            .modal-content {
+                width: 95%;
+                margin: 0 auto;
+            }
         }
     </style>
 </head>
