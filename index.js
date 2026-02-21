@@ -146,6 +146,7 @@ app.get('/api/records/employee/:name', (req, res) => {
     });
 });
 
-app.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
+// Start Server for Cloud Environments (0.0.0.0)
+app.listen(port, '0.0.0.0', () => {
+    console.log(`Server running on port ${port} (0.0.0.0)`);
 });
