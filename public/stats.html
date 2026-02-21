@@ -122,6 +122,7 @@
                 <label for="monthPicker">选择月份:</label>
                 <input type="month" id="monthPicker">
                 <button onclick="loadStats()">查询</button>
+                <button onclick="exportExcel()">导出 Excel</button>
                 <div style="flex-grow:1;"></div>
                 <button onclick="logout()">注销退出</button>
             </div>
@@ -274,6 +275,15 @@
             } catch (err) {
                 tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: red;">加载失败: ${err.message}</td></tr>`;
             }
+        }
+
+        function exportExcel() {
+            const month = document.getElementById('monthPicker').value;
+            if (!month) {
+                alert('请先选择月份');
+                return;
+            }
+            window.location.href = `/api/export?month=${month}`;
         }
 
         function closeDetails() {

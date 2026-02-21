@@ -1,6 +1,7 @@
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const ExcelJS = require('exceljs');
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -144,6 +145,114 @@ app.get('/api/records/employee/:name', (req, res) => {
         }
         res.json(rows);
     });
+});
+
+// Export monthly records to Excel
+app.get('/api/export', async (req, res) => {
+    let month = req.query.month;
+    if (!month) {
+        month = new Date().toISOString().slice(0, 7);
+    }
+
+    const summarySQL = `
+        SELECT EmployeeName, Department, SUM(DurationHours) as TotalHours
+        FROM WorkRecords
+        WHERE Month = ?
+        GROUP BY EmployeeName, Department
+        ORDER BY EmployeeName
+    `;
+    const detailSQL = `
+        SELECT EmployeeName, Department, StartTime, EndTime, DurationHours, TaskDescription
+        FROM WorkRecords
+        WHERE Month = ?
+        ORDER BY EmployeeName, StartTime
+    `;
+
+    try {
+        const summaryRows = await new Promise((resolve, reject) => {
+            db.all(summarySQL, [month], (err, rows) => err ? reject(err) : resolve(rows));
+        });
+        const detailRows = await new Promise((resolve, reject) => {
+            db.all(detailSQL, [month], (err, rows) => err ? reject(err) : resolve(rows));
+        });
+
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'Panshaker';
+        workbook.created = new Date();
+
+        // ── Sheet 1: 汇总 ──
+        const summarySheet = workbook.addWorksheet('汇总');
+
+        const [year, mon] = month.split('-');
+        const titleText = `Panshaker 海外项目国内工时统计报表 ${year}年${mon}月`;
+        summarySheet.mergeCells('A1:C1');
+        const titleCell = summarySheet.getCell('A1');
+        titleCell.value = titleText;
+        titleCell.font = { bold: true, size: 14 };
+        titleCell.alignment = { horizontal: 'center' };
+
+        summarySheet.getRow(2).values = ['姓名', '部门', '累计投入工时 (小时)'];
+        summarySheet.getRow(2).font = { bold: true };
+        summarySheet.getRow(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9D9D9' } };
+        summarySheet.columns = [
+            { key: 'name', width: 16 },
+            { key: 'dept', width: 16 },
+            { key: 'hours', width: 22 },
+        ];
+
+        let grandTotal = 0;
+        summaryRows.forEach(row => {
+            grandTotal += row.TotalHours;
+            const r = summarySheet.addRow([row.EmployeeName, row.Department, parseFloat(row.TotalHours.toFixed(2))]);
+            r.getCell(3).numFmt = '0.00';
+        });
+
+        const totalRow = summarySheet.addRow(['总计', '', parseFloat(grandTotal.toFixed(2))]);
+        totalRow.font = { bold: true };
+        totalRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF99' } };
+        totalRow.getCell(3).numFmt = '0.00';
+
+        // ── Sheet 2: 明细 ──
+        const detailSheet = workbook.addWorksheet('明细');
+        detailSheet.getRow(1).values = ['姓名', '部门', '日期', '开始时间', '结束时间', '工时 (小时)', '工作内容'];
+        detailSheet.getRow(1).font = { bold: true };
+        detailSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9D9D9' } };
+        detailSheet.columns = [
+            { key: 'name', width: 16 },
+            { key: 'dept', width: 16 },
+            { key: 'date', width: 13 },
+            { key: 'start', width: 18 },
+            { key: 'end', width: 18 },
+            { key: 'hours', width: 14 },
+            { key: 'task', width: 40 },
+        ];
+
+        detailRows.forEach(row => {
+            const start = new Date(row.StartTime);
+            const end = new Date(row.EndTime);
+            const fmt = d => d.toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' });
+            const dateFmt = d => d.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' });
+            const r = detailSheet.addRow([
+                row.EmployeeName,
+                row.Department,
+                dateFmt(start),
+                fmt(start).slice(11, 16),
+                fmt(end).slice(11, 16),
+                parseFloat(row.DurationHours.toFixed(2)),
+                row.TaskDescription,
+            ]);
+            r.getCell(6).numFmt = '0.00';
+        });
+
+        const filename = `panshaker_worklog_${month}.xlsx`;
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (err) {
+        console.error('Export error:', err);
+        res.status(500).json({ error: '导出失败，请稍后重试' });
+    }
 });
 
 // Start Server for Cloud Environments (0.0.0.0)
