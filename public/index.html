@@ -196,7 +196,11 @@
 
     <script>
         // Auth check
-        if (localStorage.getItem('ps_role') !== 'employee') {
+        if (localStorage.getItem('ps_role') !== 'employee' || !localStorage.getItem('ps_name')) {
+            // If no name stored, force re-login to get user info
+            localStorage.removeItem('ps_role');
+            localStorage.removeItem('ps_name');
+            localStorage.removeItem('ps_department');
             window.location.href = 'login.html';
         }
 
