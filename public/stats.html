@@ -15,6 +15,8 @@
             height: 100vh;
             margin: 0;
             font-family: Arial, sans-serif;
+            flex-direction: column;
+            gap: 15px;
         }
 
         .window {
@@ -184,6 +186,69 @@
         </div>
     </div>
 
+    <!-- Account Management Window -->
+    <div class="window" style="width: 550px; max-width: 95%;">
+        <div class="title-bar">
+            <div class="title-bar-text">账户管理</div>
+        </div>
+        <div class="window-body">
+            <div class="sunken-panel" style="height: 200px; overflow: auto; padding: 0;">
+                <table class="interactive">
+                    <thead>
+                        <tr>
+                            <th>账号</th>
+                            <th>姓名</th>
+                            <th>部门</th>
+                            <th>累计工时</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTableBody">
+                        <tr>
+                            <td colspan="5" style="text-align: center;">加载中...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for User Records -->
+    <div id="userRecordsModal" class="modal">
+        <div class="window modal-content">
+            <div class="title-bar">
+                <div class="title-bar-text" id="userRecordsTitle">账户记录</div>
+                <div class="title-bar-controls">
+                    <button aria-label="Close" onclick="closeUserRecords()"></button>
+                </div>
+            </div>
+            <div class="window-body">
+                <div class="toolbar" style="margin-bottom:8px;">
+                    <label for="userMonthPicker">月份:</label>
+                    <input type="month" id="userMonthPicker">
+                    <button onclick="loadUserRecords()">查询</button>
+                </div>
+                <div class="sunken-panel" style="padding: 0; max-height: 300px; overflow: auto;">
+                    <table class="interactive">
+                        <thead>
+                            <tr>
+                                <th>日期</th>
+                                <th>时间段</th>
+                                <th>工作内容</th>
+                                <th>工时</th>
+                            </tr>
+                        </thead>
+                        <tbody id="userRecordsTableBody">
+                            <tr>
+                                <td colspan="4" style="text-align: center;">请选择月份查询</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Auth check
         if (localStorage.getItem('ps_role') !== 'admin') {
@@ -293,13 +358,125 @@
         // Close modal when clicking outside
         window.onclick = function (event) {
             const modal = document.getElementById('detailsModal');
+            const userModal = document.getElementById('userRecordsModal');
             if (event.target == modal) {
                 closeDetails();
             }
+            if (event.target == userModal) {
+                closeUserRecords();
+            }
         }
 
-        // Load static initially
+        // ── Account Management ──
+        let currentViewUser = '';
+
+        async function loadUsers() {
+            const tbody = document.getElementById('usersTableBody');
+            try {
+                const res = await fetch('/api/users');
+                if (!res.ok) throw new Error('网络错误');
+                const data = await res.json();
+
+                tbody.innerHTML = '';
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">暂无注册账户</td></tr>';
+                    return;
+                }
+
+                data.forEach(user => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${user.Account}</td>
+                        <td>${user.Name}</td>
+                        <td>${user.Department}</td>
+                        <td>${user.TotalHours.toFixed(2)}h</td>
+                        <td>
+                            <button onclick="viewUser('${user.Name}')">查看</button>
+                            <button onclick="deleteUser('${user.Account}', '${user.Name}')">删除</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: red;">加载失败</td></tr>`;
+            }
+        }
+
+        function viewUser(name) {
+            currentViewUser = name;
+            const modal = document.getElementById('userRecordsModal');
+            const title = document.getElementById('userRecordsTitle');
+            title.innerText = `${name} - 工作记录`;
+            document.getElementById('userMonthPicker').value = currentMonth;
+            modal.style.display = 'flex';
+            loadUserRecords();
+        }
+
+        async function loadUserRecords() {
+            const month = document.getElementById('userMonthPicker').value;
+            const tbody = document.getElementById('userRecordsTableBody');
+            if (!currentViewUser || !month) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">请选择月份</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">加载中...</td></tr>';
+
+            try {
+                const res = await fetch(`/api/records/employee/${encodeURIComponent(currentViewUser)}?month=${month}`);
+                if (!res.ok) throw new Error('网络错误');
+                const data = await res.json();
+
+                tbody.innerHTML = '';
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">该月无记录</td></tr>';
+                    return;
+                }
+
+                data.forEach(rec => {
+                    const startStr = new Date(rec.StartTime).toLocaleString('zh-CN', { hour12: false });
+                    const endStr = new Date(rec.EndTime).toLocaleString('zh-CN', { hour12: false });
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${startStr.slice(0, 10)}</td>
+                        <td>${startStr.slice(11, 16)} - ${endStr.slice(11, 16)}</td>
+                        <td>${rec.TaskDescription}</td>
+                        <td>${rec.DurationHours.toFixed(2)}h</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: red;">加载失败</td></tr>`;
+            }
+        }
+
+        function closeUserRecords() {
+            document.getElementById('userRecordsModal').style.display = 'none';
+            currentViewUser = '';
+        }
+
+        async function deleteUser(account, name) {
+            const choice = confirm(`确定删除账户 ${name}(${account})？\n\n点击"确定"将同时删除该用户的所有工时记录。`);
+            if (!choice) return;
+
+            try {
+                const res = await fetch(`/api/users/${encodeURIComponent(account)}?deleteRecords=true`, { method: 'DELETE' });
+                if (res.ok) {
+                    alert('账户已删除');
+                    loadUsers();
+                    loadStats();
+                } else {
+                    const data = await res.json();
+                    alert(data.error || '删除失败');
+                }
+            } catch (e) {
+                alert('网络错误');
+            }
+        }
+
+        // Load initially
         loadStats();
+        loadUsers();
     </script>
 
 </body>

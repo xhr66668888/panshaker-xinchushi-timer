@@ -315,6 +315,56 @@ app.get('/api/export', async (req, res) => {
     }
 });
 
+// Get all registered users
+app.get('/api/users', (req, res) => {
+    const sql = `
+        SELECT u.Account, u.Name, u.Department,
+               IFNULL(SUM(w.DurationHours), 0) as TotalHours,
+               COUNT(w.Id) as RecordCount
+        FROM Users u
+        LEFT JOIN WorkRecords w ON u.Name = w.EmployeeName
+        GROUP BY u.Account, u.Name, u.Department
+        ORDER BY u.Name
+    `;
+    db.all(sql, [], (err, rows) => {
+        if (err) {
+            console.error('Database error:', err);
+            return res.status(500).json({ error: 'Failed to fetch users' });
+        }
+        res.json(rows);
+    });
+});
+
+// Delete a user and optionally their records
+app.delete('/api/users/:account', (req, res) => {
+    const account = req.params.account;
+    const deleteRecords = req.query.deleteRecords === 'true';
+
+    db.get('SELECT * FROM Users WHERE Account = ?', [account], (err, user) => {
+        if (err) {
+            return res.status(500).json({ error: '服务器错误' });
+        }
+        if (!user) {
+            return res.status(404).json({ error: '账号不存在' });
+        }
+
+        db.run('DELETE FROM Users WHERE Account = ?', [account], function (err) {
+            if (err) {
+                return res.status(500).json({ error: '删除失败' });
+            }
+
+            if (deleteRecords) {
+                db.run('DELETE FROM WorkRecords WHERE EmployeeName = ?', [user.Name], function (err2) {
+                    if (err2) console.error('Delete records error:', err2);
+                    res.json({ success: true, deletedRecords: this.changes || 0 });
+                });
+            } else {
+                res.json({ success: true });
+            }
+        });
+    });
+});
+
 // Start Server for Cloud Environments (0.0.0.0)
 app.listen(port, '0.0.0.0', () => {
     console.log(`Server running on port ${port} (0.0.0.0)`);
