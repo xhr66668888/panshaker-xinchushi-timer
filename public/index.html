@@ -275,10 +275,10 @@
                     return;
                 }
 
-                data.forEach(rec => {
+                data.forEach((rec, index) => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
-                        <td>${rec.Id}</td>
+                        <td>${index + 1}</td>
                         <td>${rec.TaskDescription}</td>
                         <td>${rec.DurationHours.toFixed(2)}h</td>
                         <td><button onclick="deleteRecord(${rec.Id})">撤销(删除)</button></td>
@@ -291,7 +291,7 @@
         }
 
         async function deleteRecord(id) {
-            if (!confirm('确定要删除这条打卡记录吗？删除后需人工重新填写。')) return;
+            if (!confirm('确定删除该记录？')) return;
 
             try {
                 const res = await fetch(`/api/records/${id}`, { method: 'DELETE' });
