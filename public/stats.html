@@ -260,6 +260,13 @@
             window.location.href = 'login.html';
         }
 
+        // HTML escape to prevent XSS
+        function esc(str) {
+            const d = document.createElement('div');
+            d.textContent = str;
+            return d.innerHTML;
+        }
+
         // Set default month to current month
         const today = new Date();
         const currentMonth = today.toISOString().slice(0, 7);
@@ -289,9 +296,10 @@
                 data.forEach(stat => {
                     total += stat.totalHours;
                     const tr = document.createElement('tr');
+                    const safeName = esc(stat.employeeName);
                     tr.innerHTML = `
-                    <td><a href="#" onclick="showDetails('${stat.employeeName}')">${stat.employeeName}</a></td>
-                    <td>${stat.department}</td>
+                    <td><a href="#" onclick="showDetails('${safeName}')">${safeName}</a></td>
+                    <td>${esc(stat.department)}</td>
                     <td>${stat.totalHours.toFixed(2)}</td>
                 `;
                     tbody.appendChild(tr);
@@ -385,14 +393,16 @@
 
                 data.forEach(user => {
                     const tr = document.createElement('tr');
+                    const safeName = esc(user.Name);
+                    const safeAccount = esc(user.Account);
                     tr.innerHTML = `
-                        <td>${user.Account}</td>
-                        <td>${user.Name}</td>
-                        <td>${user.Department}</td>
+                        <td>${safeAccount}</td>
+                        <td>${safeName}</td>
+                        <td>${esc(user.Department)}</td>
                         <td>${user.TotalHours.toFixed(2)}h</td>
                         <td>
-                            <button onclick="viewUser('${user.Name}')">查看</button>
-                            <button onclick="deleteUser('${user.Account}', '${user.Name}')">删除</button>
+                            <button onclick="viewUser('${safeName}')">查看</button>
+                            <button onclick="deleteUser('${safeAccount}', '${safeName}')">删除</button>
                         </td>
                     `;
                     tbody.appendChild(tr);

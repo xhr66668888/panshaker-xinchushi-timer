@@ -32,6 +32,11 @@ const db = new sqlite3.Database('work_records.db', (err) => {
                 Department TEXT NOT NULL
             )
         `);
+
+        // Create indexes for query performance (100 users x 90 records/month)
+        db.run(`CREATE INDEX IF NOT EXISTS idx_records_employee ON WorkRecords(EmployeeName)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_records_month ON WorkRecords(Month)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_records_employee_month ON WorkRecords(EmployeeName, Month)`);
     }
 });
 
