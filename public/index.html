@@ -293,8 +293,9 @@
 
         async function loadRecentRecords() {
             const tbody = document.getElementById('recentTableBody');
+            const myName = localStorage.getItem('ps_name') || '';
             try {
-                const res = await fetch('/api/records/recent');
+                const res = await fetch(`/api/records/recent?name=${encodeURIComponent(myName)}`);
                 const data = await res.json();
 
                 tbody.innerHTML = '';

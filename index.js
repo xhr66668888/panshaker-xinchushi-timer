@@ -135,13 +135,29 @@ app.delete('/api/records/:id', (req, res) => {
 
 // Get recent 10 records for the undo view
 app.get('/api/records/recent', (req, res) => {
-    const sql = `
-        SELECT Id, EmployeeName, Department, TaskDescription, StartTime, EndTime, DurationHours
-        FROM WorkRecords
-        ORDER BY Id DESC
-        LIMIT 10
-    `;
-    db.all(sql, [], (err, rows) => {
+    const name = req.query.name;
+    let sql, params;
+
+    if (name) {
+        sql = `
+            SELECT Id, EmployeeName, Department, TaskDescription, StartTime, EndTime, DurationHours
+            FROM WorkRecords
+            WHERE EmployeeName = ?
+            ORDER BY Id DESC
+            LIMIT 10
+        `;
+        params = [name];
+    } else {
+        sql = `
+            SELECT Id, EmployeeName, Department, TaskDescription, StartTime, EndTime, DurationHours
+            FROM WorkRecords
+            ORDER BY Id DESC
+            LIMIT 10
+        `;
+        params = [];
+    }
+
+    db.all(sql, params, (err, rows) => {
         if (err) {
             console.error('Database error:', err);
             return res.status(500).json({ error: 'Failed to fetch recent records' });
