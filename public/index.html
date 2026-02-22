@@ -200,8 +200,30 @@
             window.location.href = 'login.html';
         }
 
+        // Auto-fill name and department from login info
+        const savedName = localStorage.getItem('ps_name');
+        const savedDept = localStorage.getItem('ps_department');
+        if (savedName) {
+            document.getElementById('employeeName').value = savedName;
+            document.getElementById('employeeName').readOnly = true;
+        }
+        if (savedDept) {
+            const deptSelect = document.getElementById('department');
+            deptSelect.value = savedDept;
+            deptSelect.disabled = true;
+            // Create a hidden input so the value still submits with form
+            const hiddenDept = document.createElement('input');
+            hiddenDept.type = 'hidden';
+            hiddenDept.name = 'department';
+            hiddenDept.id = 'departmentHidden';
+            hiddenDept.value = savedDept;
+            deptSelect.parentNode.appendChild(hiddenDept);
+        }
+
         function logout() {
             localStorage.removeItem('ps_role');
+            localStorage.removeItem('ps_name');
+            localStorage.removeItem('ps_department');
             window.location.href = 'login.html';
         }
 
@@ -231,7 +253,9 @@
 
             const data = {
                 EmployeeName: document.getElementById('employeeName').value,
-                Department: document.getElementById('department').value,
+                Department: document.getElementById('departmentHidden')
+                    ? document.getElementById('departmentHidden').value
+                    : document.getElementById('department').value,
                 TaskDescription: document.getElementById('taskDescription').value,
                 StartTime: startTime.toISOString(),
                 EndTime: endTime.toISOString()

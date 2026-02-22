@@ -25,7 +25,67 @@ const db = new sqlite3.Database('work_records.db', (err) => {
                 Month TEXT NOT NULL
             )
         `);
+        db.run(`
+            CREATE TABLE IF NOT EXISTS Users (
+                Account TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                Department TEXT NOT NULL
+            )
+        `);
     }
+});
+
+// Register a new employee account
+app.post('/api/register', (req, res) => {
+    const { account, name, department } = req.body;
+
+    if (!account || !name || !department) {
+        return res.status(400).json({ error: '请填写所有字段' });
+    }
+
+    if (account === '9999') {
+        return res.status(400).json({ error: '该账号为管理员专用' });
+    }
+
+    db.get('SELECT Account FROM Users WHERE Account = ?', [account], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: '服务器错误' });
+        }
+        if (row) {
+            return res.status(400).json({ error: '该账号已被注册' });
+        }
+
+        db.run('INSERT INTO Users (Account, Name, Department) VALUES (?, ?, ?)', [account, name, department], function (err) {
+            if (err) {
+                console.error('Register error:', err);
+                return res.status(500).json({ error: '注册失败' });
+            }
+            res.json({ success: true, name, department });
+        });
+    });
+});
+
+// Login with account code
+app.post('/api/login', (req, res) => {
+    const { account } = req.body;
+
+    if (!account) {
+        return res.status(400).json({ error: '请输入账号' });
+    }
+
+    if (account === '9999') {
+        return res.json({ success: true, role: 'admin' });
+    }
+
+    db.get('SELECT * FROM Users WHERE Account = ?', [account], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: '服务器错误' });
+        }
+        if (!row) {
+            return res.status(404).json({ error: '账号未注册' });
+        }
+        res.json({ success: true, role: 'employee', name: row.Name, department: row.Department });
+    });
 });
 
 // Submit a new record
