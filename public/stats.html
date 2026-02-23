@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-title-i18n="statsPageTitle">
 
 <head>
     <meta charset="UTF-8">
@@ -88,6 +88,16 @@
             max-height: 60vh;
         }
 
+        #langToggle {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            z-index: 9999;
+            padding: 2px 8px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
         /* Mobile specific adjustments */
         @media (max-width: 600px) {
             .toolbar {
@@ -111,9 +121,12 @@
 
 <body>
 
+    <!-- Language Toggle -->
+    <button id="langToggle" onclick="i18n.toggleLang()">EN</button>
+
     <div class="window">
         <div class="title-bar">
-            <div class="title-bar-text">海外项目当月国内工时核算</div>
+            <div class="title-bar-text" data-i18n="statsWindowTitle">海外项目当月国内工时核算</div>
             <div class="title-bar-controls">
                 <button aria-label="Close" onclick="window.location.href='index.html'"></button>
             </div>
@@ -121,31 +134,31 @@
         <div class="window-body">
 
             <div class="toolbar">
-                <label for="monthPicker">选择月份:</label>
+                <label for="monthPicker" data-i18n="selectMonthLabel">选择月份:</label>
                 <input type="month" id="monthPicker">
-                <button onclick="loadStats()">查询</button>
-                <button onclick="exportExcel()">导出 Excel</button>
+                <button onclick="loadStats()" data-i18n="queryBtn">查询</button>
+                <button onclick="exportExcel()" data-i18n="exportBtn">导出 Excel</button>
                 <div style="flex-grow:1;"></div>
-                <button onclick="logout()">注销退出</button>
+                <button onclick="logout()" data-i18n="logout">注销退出</button>
             </div>
 
             <div class="sunken-panel" style="height: 300px; padding: 0;">
                 <table class="interactive">
                     <thead>
                         <tr>
-                            <th>姓名</th>
-                            <th>部门</th>
-                            <th>累计投入工时 (小时)</th>
+                            <th data-i18n="thName">姓名</th>
+                            <th data-i18n="thDept">部门</th>
+                            <th data-i18n="thTotalHours">累计投入工时 (小时)</th>
                         </tr>
                     </thead>
                     <tbody id="statsTableBody">
                         <tr>
-                            <td colspan="3" style="text-align: center;">加载中...</td>
+                            <td colspan="3" style="text-align: center;" data-i18n="loading">加载中...</td>
                         </tr>
                     </tbody>
                     <tfoot>
                         <tr class="total-row">
-                            <td colspan="2">总计:</td>
+                            <td colspan="2" data-i18n="grandTotalLabel">总计:</td>
                             <td id="grandTotal">0.0</td>
                         </tr>
                     </tfoot>
@@ -159,7 +172,7 @@
     <div id="detailsModal" class="modal">
         <div class="window modal-content">
             <div class="title-bar">
-                <div class="title-bar-text" id="detailsTitle">员工详情</div>
+                <div class="title-bar-text" id="detailsTitle" data-i18n="employeeDetailTitle">员工详情</div>
                 <div class="title-bar-controls">
                     <button aria-label="Close" onclick="closeDetails()"></button>
                 </div>
@@ -169,15 +182,15 @@
                     <table class="interactive">
                         <thead>
                             <tr>
-                                <th>日期</th>
-                                <th>时间段</th>
-                                <th>工作内容</th>
-                                <th>计入工时</th>
+                                <th data-i18n="thDate">日期</th>
+                                <th data-i18n="thTimeRange">时间段</th>
+                                <th data-i18n="thTaskContent">工作内容</th>
+                                <th data-i18n="thHours">计入工时</th>
                             </tr>
                         </thead>
                         <tbody id="detailsTableBody">
                             <tr>
-                                <td colspan="4" style="text-align: center;">加载中...</td>
+                                <td colspan="4" style="text-align: center;" data-i18n="loading">加载中...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -189,23 +202,23 @@
     <!-- Account Management Window -->
     <div class="window" style="width: 550px; max-width: 95%;">
         <div class="title-bar">
-            <div class="title-bar-text">账户管理</div>
+            <div class="title-bar-text" data-i18n="accountMgmtTitle">账户管理</div>
         </div>
         <div class="window-body">
             <div class="sunken-panel" style="height: 200px; overflow: auto; padding: 0;">
                 <table class="interactive">
                     <thead>
                         <tr>
-                            <th>账号</th>
-                            <th>姓名</th>
-                            <th>部门</th>
-                            <th>累计工时</th>
-                            <th>操作</th>
+                            <th data-i18n="thAccount">账号</th>
+                            <th data-i18n="thName">姓名</th>
+                            <th data-i18n="thDept">部门</th>
+                            <th data-i18n="thAccHours">累计工时</th>
+                            <th data-i18n="thOps">操作</th>
                         </tr>
                     </thead>
                     <tbody id="usersTableBody">
                         <tr>
-                            <td colspan="5" style="text-align: center;">加载中...</td>
+                            <td colspan="5" style="text-align: center;" data-i18n="loading">加载中...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -217,30 +230,30 @@
     <div id="userRecordsModal" class="modal">
         <div class="window modal-content">
             <div class="title-bar">
-                <div class="title-bar-text" id="userRecordsTitle">账户记录</div>
+                <div class="title-bar-text" id="userRecordsTitle" data-i18n="userRecordsTitle">账户记录</div>
                 <div class="title-bar-controls">
                     <button aria-label="Close" onclick="closeUserRecords()"></button>
                 </div>
             </div>
             <div class="window-body">
                 <div class="toolbar" style="margin-bottom:8px;">
-                    <label for="userMonthPicker">月份:</label>
+                    <label for="userMonthPicker" data-i18n="monthLabel">月份:</label>
                     <input type="month" id="userMonthPicker">
-                    <button onclick="loadUserRecords()">查询</button>
+                    <button onclick="loadUserRecords()" data-i18n="queryBtn">查询</button>
                 </div>
                 <div class="sunken-panel" style="padding: 0; max-height: 300px; overflow: auto;">
                     <table class="interactive">
                         <thead>
                             <tr>
-                                <th>日期</th>
-                                <th>时间段</th>
-                                <th>工作内容</th>
-                                <th>工时</th>
+                                <th data-i18n="thDate">日期</th>
+                                <th data-i18n="thTimeRange">时间段</th>
+                                <th data-i18n="thTaskContent">工作内容</th>
+                                <th data-i18n="thHours">计入工时</th>
                             </tr>
                         </thead>
                         <tbody id="userRecordsTableBody">
                             <tr>
-                                <td colspan="4" style="text-align: center;">请选择月份查询</td>
+                                <td colspan="4" style="text-align: center;" data-i18n="selectMonthFirst">请选择月份查询</td>
                             </tr>
                         </tbody>
                     </table>
@@ -249,11 +262,15 @@
         </div>
     </div>
 
+    <script src="i18n.js"></script>
     <script>
         // Auth check
         if (localStorage.getItem('ps_role') !== 'admin') {
             window.location.href = 'login.html';
         }
+
+        // Apply language
+        i18n.applyLang();
 
         function logout() {
             localStorage.removeItem('ps_role');
@@ -277,19 +294,19 @@
             const tbody = document.getElementById('statsTableBody');
             const grandTotal = document.getElementById('grandTotal');
 
-            tbody.innerHTML = '<tr><td colspan="3" style="text-align: center;">加载中...</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="3" style="text-align: center;">${i18n.t('loading')}</td></tr>`;
             grandTotal.innerText = '0.0';
 
             try {
                 const res = await fetch(`/api/stats?month=${month}`);
-                if (!res.ok) throw new Error('网络错误');
+                if (!res.ok) throw new Error(i18n.t('networkError'));
                 const data = await res.json();
 
                 tbody.innerHTML = '';
                 let total = 0;
 
                 if (data.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="3" style="text-align: center;">该月无数据。</td></tr>';
+                    tbody.innerHTML = `<tr><td colspan="3" style="text-align: center;">${i18n.t('noData')}</td></tr>`;
                     return;
                 }
 
@@ -308,7 +325,7 @@
                 grandTotal.innerText = total.toFixed(2);
 
             } catch (err) {
-                tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: red;">加载失败: ${err.message}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: red;">${i18n.t('loadFailed')}: ${err.message}</td></tr>`;
             }
         }
 
@@ -318,18 +335,20 @@
             const title = document.getElementById('detailsTitle');
             const tbody = document.getElementById('detailsTableBody');
 
-            title.innerText = `${employeeName} - ${month} 工作明细`;
+            title.innerText = `${employeeName} - ${month}`;
+            // Remove data-i18n so applyLang won't override dynamic title
+            title.removeAttribute('data-i18n');
             modal.style.display = 'flex';
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">加载中...</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="4" style="text-align: center;">${i18n.t('loading')}</td></tr>`;
 
             try {
                 const res = await fetch(`/api/records/employee/${encodeURIComponent(employeeName)}?month=${month}`);
-                if (!res.ok) throw new Error('网络错误');
+                if (!res.ok) throw new Error(i18n.t('networkError'));
                 const data = await res.json();
 
                 tbody.innerHTML = '';
                 if (data.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">无详细记录。</td></tr>';
+                    tbody.innerHTML = `<tr><td colspan="4" style="text-align: center;">${i18n.t('noDetail')}</td></tr>`;
                     return;
                 }
 
@@ -346,14 +365,14 @@
                     tbody.appendChild(tr);
                 });
             } catch (err) {
-                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: red;">加载失败: ${err.message}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: red;">${i18n.t('loadFailed')}: ${err.message}</td></tr>`;
             }
         }
 
         function exportExcel() {
             const month = document.getElementById('monthPicker').value;
             if (!month) {
-                alert('请先选择月份');
+                alert(i18n.t('selectMonthAlert'));
                 return;
             }
             window.location.href = `/api/export?month=${month}`;
@@ -361,6 +380,8 @@
 
         function closeDetails() {
             document.getElementById('detailsModal').style.display = 'none';
+            // Restore data-i18n for the title
+            document.getElementById('detailsTitle').setAttribute('data-i18n', 'employeeDetailTitle');
         }
 
         // Close modal when clicking outside
@@ -382,12 +403,12 @@
             const tbody = document.getElementById('usersTableBody');
             try {
                 const res = await fetch('/api/users');
-                if (!res.ok) throw new Error('网络错误');
+                if (!res.ok) throw new Error(i18n.t('networkError'));
                 const data = await res.json();
 
                 tbody.innerHTML = '';
                 if (data.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">暂无注册账户</td></tr>';
+                    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center;">${i18n.t('noUsers')}</td></tr>`;
                     return;
                 }
 
@@ -401,14 +422,14 @@
                         <td>${esc(user.Department)}</td>
                         <td>${user.TotalHours.toFixed(2)}h</td>
                         <td>
-                            <button onclick="viewUser('${safeName}')">查看</button>
-                            <button onclick="deleteUser('${safeAccount}', '${safeName}')">删除</button>
+                            <button onclick="viewUser('${safeName}')">${i18n.t('viewBtn')}</button>
+                            <button onclick="deleteUser('${safeAccount}', '${safeName}')">${i18n.t('deleteUserBtn')}</button>
                         </td>
                     `;
                     tbody.appendChild(tr);
                 });
             } catch (err) {
-                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: red;">加载失败</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: red;">${i18n.t('loadFailed')}</td></tr>`;
             }
         }
 
@@ -416,7 +437,8 @@
             currentViewUser = name;
             const modal = document.getElementById('userRecordsModal');
             const title = document.getElementById('userRecordsTitle');
-            title.innerText = `${name} - 工作记录`;
+            title.innerText = `${name}`;
+            title.removeAttribute('data-i18n');
             document.getElementById('userMonthPicker').value = currentMonth;
             modal.style.display = 'flex';
             loadUserRecords();
@@ -426,20 +448,20 @@
             const month = document.getElementById('userMonthPicker').value;
             const tbody = document.getElementById('userRecordsTableBody');
             if (!currentViewUser || !month) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">请选择月份</td></tr>';
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center;">${i18n.t('selectMonthPrompt')}</td></tr>`;
                 return;
             }
 
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">加载中...</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="4" style="text-align: center;">${i18n.t('loading')}</td></tr>`;
 
             try {
                 const res = await fetch(`/api/records/employee/${encodeURIComponent(currentViewUser)}?month=${month}`);
-                if (!res.ok) throw new Error('网络错误');
+                if (!res.ok) throw new Error(i18n.t('networkError'));
                 const data = await res.json();
 
                 tbody.innerHTML = '';
                 if (data.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">该月无记录</td></tr>';
+                    tbody.innerHTML = `<tr><td colspan="4" style="text-align: center;">${i18n.t('noMonthRecords')}</td></tr>`;
                     return;
                 }
 
@@ -456,31 +478,34 @@
                     tbody.appendChild(tr);
                 });
             } catch (err) {
-                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: red;">加载失败</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: red;">${i18n.t('loadFailed')}</td></tr>`;
             }
         }
 
         function closeUserRecords() {
             document.getElementById('userRecordsModal').style.display = 'none';
+            document.getElementById('userRecordsTitle').setAttribute('data-i18n', 'userRecordsTitle');
             currentViewUser = '';
         }
 
         async function deleteUser(account, name) {
-            const choice = confirm(`确定删除账户 ${name}(${account})？\n\n点击"确定"将同时删除该用户的所有工时记录。`);
-            if (!choice) return;
+            const msg = i18n.getLang() === 'en'
+                ? `Delete account ${name}(${account})?\n\nThis will also delete all work records.`
+                : `确定删除账户 ${name}(${account})？\n\n点击"确定"将同时删除该用户的所有工时记录。`;
+            if (!confirm(msg)) return;
 
             try {
                 const res = await fetch(`/api/users/${encodeURIComponent(account)}?deleteRecords=true`, { method: 'DELETE' });
                 if (res.ok) {
-                    alert('账户已删除');
+                    alert(i18n.t('userDeleted'));
                     loadUsers();
                     loadStats();
                 } else {
                     const data = await res.json();
-                    alert(data.error || '删除失败');
+                    alert(i18n.tErr(data.error) || i18n.t('deleteFailed'));
                 }
             } catch (e) {
-                alert('网络错误');
+                alert(i18n.t('networkError'));
             }
         }
 

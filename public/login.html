@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-title-i18n="loginPageTitle">
 
 <head>
     <meta charset="UTF-8">
@@ -59,6 +59,16 @@
             padding: 0;
         }
 
+        #langToggle {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            z-index: 9999;
+            padding: 2px 8px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
         /* Mobile */
         @media (max-width: 600px) {
             .window {
@@ -87,30 +97,33 @@
 
 <body>
 
+    <!-- Language Toggle -->
+    <button id="langToggle" onclick="i18n.toggleLang()">EN</button>
+
     <!-- Login Window -->
     <div class="window" id="loginWindow">
         <div class="title-bar">
-            <div class="title-bar-text">系统登录</div>
+            <div class="title-bar-text" data-i18n="loginWindowTitle">系统登录</div>
             <div class="title-bar-controls">
                 <button aria-label="Close"></button>
             </div>
         </div>
         <div class="window-body">
-            <p style="text-align: center; margin-bottom: 15px;">欢迎使用 Panshaker 工时系统</p>
+            <p style="text-align: center; margin-bottom: 15px;" data-i18n="welcomeText">欢迎使用 Panshaker 工时系统</p>
             <form id="loginForm">
                 <div class="field-row">
-                    <label for="loginAccount">账号:</label>
-                    <input id="loginAccount" type="text" placeholder="输入数字账号" required autofocus />
+                    <label for="loginAccount" data-i18n="accountLabel">账号:</label>
+                    <input id="loginAccount" type="text" data-i18n-ph="loginAccountPH" placeholder="输入数字账号" required autofocus />
                 </div>
                 <div class="field-row">
-                    <label for="loginPassword">密码:</label>
-                    <input id="loginPassword" type="password" placeholder="输入密码" required />
+                    <label for="loginPassword" data-i18n="passwordLabel">密码:</label>
+                    <input id="loginPassword" type="password" data-i18n-ph="loginPasswordPH" placeholder="输入密码" required />
                 </div>
                 <div id="loginMsg" style="display:none; text-align:center; font-size:13px; color:red;"></div>
                 <div class="button-group">
-                    <button type="button" class="link-btn" onclick="showRegister()">注册新账号</button>
+                    <button type="button" class="link-btn" onclick="showRegister()" data-i18n="registerLink">注册新账号</button>
                     <div style="flex-grow:1;"></div>
-                    <button type="submit" style="font-weight: bold; width: 80px;">登录</button>
+                    <button type="submit" style="font-weight: bold; width: 80px;" data-i18n="loginBtn">登录</button>
                 </div>
             </form>
         </div>
@@ -119,7 +132,7 @@
     <!-- Register Window (hidden by default) -->
     <div class="window" id="registerWindow" style="display: none;">
         <div class="title-bar">
-            <div class="title-bar-text">注册新账号</div>
+            <div class="title-bar-text" data-i18n="registerWindowTitle">注册新账号</div>
             <div class="title-bar-controls">
                 <button aria-label="Close" onclick="showLogin()"></button>
             </div>
@@ -127,39 +140,37 @@
         <div class="window-body">
             <form id="registerForm">
                 <div class="field-row">
-                    <label for="regName">姓名:</label>
-                    <input id="regName" type="text" placeholder="真实姓名" required />
+                    <label for="regName" data-i18n="nameLabel">姓名:</label>
+                    <input id="regName" type="text" data-i18n-ph="regNamePH" placeholder="真实姓名" required />
                 </div>
                 <div class="field-row">
-                    <label for="regDept">部门:</label>
-                    <select id="regDept" required>
-                        <option value="">请选择...</option>
-                        <option value="研发中心">研发中心</option>
-                        <option value="市场部">市场部</option>
-                        <option value="设计部">设计部</option>
-                        <option value="运营部">运营部</option>
-                        <option value="其他">其他</option>
+                    <label for="regDept" data-i18n="deptLabel">部门:</label>
+                    <select id="regDept" data-dept required>
                     </select>
                 </div>
                 <div class="field-row">
-                    <label for="regAccount">账号:</label>
-                    <input id="regAccount" type="text" placeholder="设置一个数字账号" required />
+                    <label for="regAccount" data-i18n="accountLabel">账号:</label>
+                    <input id="regAccount" type="text" data-i18n-ph="regAccountPH" placeholder="设置一个数字账号" required />
                 </div>
                 <div class="field-row">
-                    <label for="regPassword">密码:</label>
-                    <input id="regPassword" type="password" placeholder="设置登录密码" required />
+                    <label for="regPassword" data-i18n="passwordLabel">密码:</label>
+                    <input id="regPassword" type="password" data-i18n-ph="regPasswordPH" placeholder="设置登录密码" required />
                 </div>
                 <div id="regMsg" style="display:none; text-align:center; font-size:13px;"></div>
                 <div class="button-group">
-                    <button type="button" class="link-btn" onclick="showLogin()">返回登录</button>
+                    <button type="button" class="link-btn" onclick="showLogin()" data-i18n="backToLogin">返回登录</button>
                     <div style="flex-grow:1;"></div>
-                    <button type="submit" style="font-weight: bold; width: 80px;">注册</button>
+                    <button type="submit" style="font-weight: bold; width: 80px;" data-i18n="registerBtn">注册</button>
                 </div>
             </form>
         </div>
     </div>
 
+    <script src="i18n.js"></script>
     <script>
+        // Apply language on load
+        i18n.applyLang();
+
         function showRegister() {
             document.getElementById('loginWindow').style.display = 'none';
             document.getElementById('registerWindow').style.display = '';
@@ -196,9 +207,9 @@
 
                 if (!res.ok) {
                     if (res.status === 404) {
-                        showMsg('loginMsg', '账号未注册，请先注册');
+                        showMsg('loginMsg', i18n.t('accountNotReg'));
                     } else {
-                        showMsg('loginMsg', data.error || '登录失败');
+                        showMsg('loginMsg', i18n.tErr(data.error) || i18n.t('loginFailed'));
                     }
                     return;
                 }
@@ -213,7 +224,7 @@
                     window.location.href = 'index.html';
                 }
             } catch (err) {
-                showMsg('loginMsg', '网络错误');
+                showMsg('loginMsg', i18n.t('networkError'));
             }
         });
 
@@ -226,7 +237,7 @@
             const password = document.getElementById('regPassword').value;
 
             if (!name || !department || !account || !password) {
-                showMsg('regMsg', '请填写所有字段');
+                showMsg('regMsg', i18n.t('fillAllFields'));
                 return;
             }
 
@@ -240,17 +251,17 @@
                 const data = await res.json();
 
                 if (!res.ok) {
-                    showMsg('regMsg', data.error || '注册失败');
+                    showMsg('regMsg', i18n.tErr(data.error) || i18n.t('regFailed'));
                     return;
                 }
 
-                showMsg('regMsg', '注册成功！正在跳转登录...', 'green');
+                showMsg('regMsg', i18n.t('regSuccess'), 'green');
                 setTimeout(() => {
                     showLogin();
                     document.getElementById('loginAccount').value = account;
                 }, 1000);
             } catch (err) {
-                showMsg('regMsg', '网络错误');
+                showMsg('regMsg', i18n.t('networkError'));
             }
         });
     </script>

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-title-i18n="indexPageTitle">
 
 <head>
     <meta charset="UTF-8">
@@ -57,6 +57,16 @@
             text-align: center;
         }
 
+        #langToggle {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            z-index: 9999;
+            padding: 2px 8px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
         /* Mobile specific adjustments */
         @media (max-width: 600px) {
             .window {
@@ -109,9 +119,12 @@
 
 <body>
 
+    <!-- Language Toggle -->
+    <button id="langToggle" onclick="i18n.toggleLang()">EN</button>
+
     <div class="window">
         <div class="title-bar">
-            <div class="title-bar-text">海外工时记录系统</div>
+            <div class="title-bar-text" data-i18n="mainWindowTitle">海外工时记录系统</div>
             <div class="title-bar-controls">
                 <button aria-label="Minimize"></button>
                 <button aria-label="Maximize"></button>
@@ -120,39 +133,33 @@
         </div>
         <div class="window-body">
             <fieldset>
-                <legend>基本信息</legend>
+                <legend data-i18n="basicInfoLegend">基本信息</legend>
                 <form id="recordForm">
                     <div class="field-row">
-                        <label for="employeeName">姓名:</label>
+                        <label for="employeeName" data-i18n="nameLabel">姓名:</label>
                         <input id="employeeName" type="text" required />
                     </div>
                     <div class="field-row">
-                        <label for="department">部门:</label>
-                        <select id="department" required>
-                            <option value="">请选择...</option>
-                            <option value="研发中心">研发中心</option>
-                            <option value="市场部">市场部</option>
-                            <option value="设计部">设计部</option>
-                            <option value="运营部">运营部</option>
-                            <option value="其他">其他</option>
+                        <label for="department" data-i18n="deptLabel">部门:</label>
+                        <select id="department" data-dept required>
                         </select>
                     </div>
                     <div class="field-row">
-                        <label for="taskDescription">Panshaker 工作内容:</label>
-                        <input id="taskDescription" type="text" placeholder="例如: 开发海外官网后台" required />
+                        <label for="taskDescription" data-i18n="taskLabel">Panshaker 工作内容:</label>
+                        <input id="taskDescription" type="text" data-i18n-ph="taskPH" placeholder="例如: 开发海外官网后台" required />
                     </div>
                 </form>
             </fieldset>
 
             <fieldset style="margin-top: 15px;">
-                <legend>工作时间</legend>
+                <legend data-i18n="workTimeLegend">工作时间</legend>
                 <div class="field-row">
-                    <label>开始时间:</label>
+                    <label data-i18n="startTimeLabel">开始时间:</label>
                     <input id="startDate" type="date" required form="recordForm" />
                     <input id="startTime" type="time" required form="recordForm" style="margin-left: 5px;" />
                 </div>
                 <div class="field-row">
-                    <label>结束时间:</label>
+                    <label data-i18n="endTimeLabel">结束时间:</label>
                     <input id="endDate" type="date" required form="recordForm" />
                     <input id="endTime" type="time" required form="recordForm" style="margin-left: 5px;" />
                 </div>
@@ -161,32 +168,32 @@
             <div id="messageBox"></div>
 
             <div class="button-group">
-                <button type="button" onclick="logout()">注销退出</button>
+                <button type="button" onclick="logout()" data-i18n="logout">注销退出</button>
                 <div style="flex-grow: 1;"></div>
-                <button type="reset" form="recordForm">重置</button>
-                <button type="submit" form="recordForm" style="font-weight: bold;">提交记录</button>
+                <button type="reset" form="recordForm" data-i18n="resetBtn">重置</button>
+                <button type="submit" form="recordForm" style="font-weight: bold;" data-i18n="submitBtn">提交记录</button>
             </div>
         </div>
     </div>
 
     <div class="window" style="width: 550px; max-width: 95%;">
         <div class="title-bar">
-            <div class="title-bar-text">提交记录</div>
+            <div class="title-bar-text" data-i18n="recentTitle">提交记录</div>
         </div>
         <div class="window-body">
             <div class="sunken-panel" style="height: 150px; overflow: auto; padding: 0;">
                 <table class="interactive">
                     <thead>
                         <tr>
-                            <th>ID</th>
-                            <th>项目/内容</th>
-                            <th>耗时</th>
-                            <th>操作</th>
+                            <th data-i18n="thID">ID</th>
+                            <th data-i18n="thTask">项目/内容</th>
+                            <th data-i18n="thDuration">耗时</th>
+                            <th data-i18n="thAction">操作</th>
                         </tr>
                     </thead>
                     <tbody id="recentTableBody">
                         <tr>
-                            <td colspan="4" style="text-align: center;">加载中...</td>
+                            <td colspan="4" style="text-align: center;" data-i18n="loading">加载中...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -194,15 +201,18 @@
         </div>
     </div>
 
+    <script src="i18n.js"></script>
     <script>
         // Auth check
         if (localStorage.getItem('ps_role') !== 'employee' || !localStorage.getItem('ps_name')) {
-            // If no name stored, force re-login to get user info
             localStorage.removeItem('ps_role');
             localStorage.removeItem('ps_name');
             localStorage.removeItem('ps_department');
             window.location.href = 'login.html';
         }
+
+        // Apply language on load
+        i18n.applyLang();
 
         // Auto-fill name and department from login info
         const savedName = localStorage.getItem('ps_name');
@@ -214,6 +224,14 @@
         if (savedDept) {
             const deptSelect = document.getElementById('department');
             deptSelect.value = savedDept;
+            // If old dept value doesn't match new options, add it
+            if (!deptSelect.value) {
+                const custom = document.createElement('option');
+                custom.value = savedDept;
+                custom.textContent = savedDept;
+                deptSelect.appendChild(custom);
+                deptSelect.value = savedDept;
+            }
             deptSelect.disabled = true;
             // Create a hidden input so the value still submits with form
             const hiddenDept = document.createElement('input');
@@ -251,7 +269,7 @@
             const endTime = new Date(`${document.getElementById('endDate').value}T${document.getElementById('endTime').value}`);
 
             if (endTime <= startTime) {
-                alert('错误: 结束时间必须晚于开始时间！');
+                alert(i18n.t('endAfterStart'));
                 return;
             }
 
@@ -276,7 +294,7 @@
 
                 if (response.ok) {
                     msgBox.style.color = 'green';
-                    msgBox.innerText = '提交成功！';
+                    msgBox.innerText = i18n.t('submitSuccess');
                     msgBox.style.display = 'block';
                     setTimeout(() => { msgBox.style.display = 'none'; }, 3000);
                     document.getElementById('taskDescription').value = '';
@@ -286,7 +304,7 @@
                 }
             } catch (err) {
                 msgBox.style.color = 'red';
-                msgBox.innerText = '提交失败: ' + err.message;
+                msgBox.innerText = i18n.t('submitFailed') + err.message;
                 msgBox.style.display = 'block';
             }
         });
@@ -300,7 +318,7 @@
 
                 tbody.innerHTML = '';
                 if (data.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">暂无近期提交记录</td></tr>';
+                    tbody.innerHTML = `<tr><td colspan="4" style="text-align: center;">${i18n.t('noRecords')}</td></tr>`;
                     return;
                 }
 
@@ -310,27 +328,27 @@
                         <td>${index + 1}</td>
                         <td>${rec.TaskDescription}</td>
                         <td>${rec.DurationHours.toFixed(2)}h</td>
-                        <td><button onclick="deleteRecord(${rec.Id})">删除</button></td>
+                        <td><button onclick="deleteRecord(${rec.Id})">${i18n.t('deleteBtn')}</button></td>
                     `;
                     tbody.appendChild(tr);
                 });
             } catch (err) {
-                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: red;">加载失败</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: red;">${i18n.t('loadFailed')}</td></tr>`;
             }
         }
 
         async function deleteRecord(id) {
-            if (!confirm('确定删除该记录？')) return;
+            if (!confirm(i18n.t('confirmDelete'))) return;
 
             try {
                 const res = await fetch(`/api/records/${id}`, { method: 'DELETE' });
                 if (res.ok) {
                     loadRecentRecords();
                 } else {
-                    alert('删除失败');
+                    alert(i18n.t('deleteFailed'));
                 }
             } catch (e) {
-                alert('网络错误');
+                alert(i18n.t('networkError'));
             }
         }
 
