@@ -29,9 +29,15 @@ const db = new sqlite3.Database('work_records.db', (err) => {
             CREATE TABLE IF NOT EXISTS Users (
                 Account TEXT PRIMARY KEY,
                 Name TEXT NOT NULL,
-                Department TEXT NOT NULL
+                Department TEXT NOT NULL,
+                Password TEXT NOT NULL DEFAULT '1234'
             )
         `);
+
+        // Migration: add Password column if it doesn't exist (for existing DBs)
+        db.run(`ALTER TABLE Users ADD COLUMN Password TEXT NOT NULL DEFAULT '1234'`, (err) => {
+            // Ignore error if column already exists
+        });
 
         // Create indexes for query performance (100 users x 90 records/month)
         db.run(`CREATE INDEX IF NOT EXISTS idx_records_employee ON WorkRecords(EmployeeName)`);
@@ -42,9 +48,9 @@ const db = new sqlite3.Database('work_records.db', (err) => {
 
 // Register a new employee account
 app.post('/api/register', (req, res) => {
-    const { account, name, department } = req.body;
+    const { account, name, department, password } = req.body;
 
-    if (!account || !name || !department) {
+    if (!account || !name || !department || !password) {
         return res.status(400).json({ error: '请填写所有字段' });
     }
 
@@ -60,7 +66,7 @@ app.post('/api/register', (req, res) => {
             return res.status(400).json({ error: '该账号已被注册' });
         }
 
-        db.run('INSERT INTO Users (Account, Name, Department) VALUES (?, ?, ?)', [account, name, department], function (err) {
+        db.run('INSERT INTO Users (Account, Name, Department, Password) VALUES (?, ?, ?, ?)', [account, name, department, password], function (err) {
             if (err) {
                 console.error('Register error:', err);
                 return res.status(500).json({ error: '注册失败' });
@@ -70,15 +76,18 @@ app.post('/api/register', (req, res) => {
     });
 });
 
-// Login with account code
+// Login with account and password
 app.post('/api/login', (req, res) => {
-    const { account } = req.body;
+    const { account, password } = req.body;
 
-    if (!account) {
-        return res.status(400).json({ error: '请输入账号' });
+    if (!account || !password) {
+        return res.status(400).json({ error: '请输入账号和密码' });
     }
 
     if (account === '9999') {
+        if (password !== '9999') {
+            return res.status(401).json({ error: '密码错误' });
+        }
         return res.json({ success: true, role: 'admin' });
     }
 
@@ -88,6 +97,9 @@ app.post('/api/login', (req, res) => {
         }
         if (!row) {
             return res.status(404).json({ error: '账号未注册' });
+        }
+        if (row.Password !== password) {
+            return res.status(401).json({ error: '密码错误' });
         }
         res.json({ success: true, role: 'employee', name: row.Name, department: row.Department });
     });

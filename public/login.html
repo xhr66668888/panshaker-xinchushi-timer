@@ -102,6 +102,10 @@
                     <label for="loginAccount">账号:</label>
                     <input id="loginAccount" type="text" placeholder="输入数字账号" required autofocus />
                 </div>
+                <div class="field-row">
+                    <label for="loginPassword">密码:</label>
+                    <input id="loginPassword" type="password" placeholder="输入密码" required />
+                </div>
                 <div id="loginMsg" style="display:none; text-align:center; font-size:13px; color:red;"></div>
                 <div class="button-group">
                     <button type="button" class="link-btn" onclick="showRegister()">注册新账号</button>
@@ -141,6 +145,10 @@
                     <label for="regAccount">账号:</label>
                     <input id="regAccount" type="text" placeholder="设置一个数字账号" required />
                 </div>
+                <div class="field-row">
+                    <label for="regPassword">密码:</label>
+                    <input id="regPassword" type="password" placeholder="设置登录密码" required />
+                </div>
                 <div id="regMsg" style="display:none; text-align:center; font-size:13px;"></div>
                 <div class="button-group">
                     <button type="button" class="link-btn" onclick="showLogin()">返回登录</button>
@@ -175,12 +183,13 @@
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const account = document.getElementById('loginAccount').value.trim();
+            const password = document.getElementById('loginPassword').value;
 
             try {
                 const res = await fetch('/api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ account })
+                    body: JSON.stringify({ account, password })
                 });
 
                 const data = await res.json();
@@ -214,8 +223,9 @@
             const name = document.getElementById('regName').value.trim();
             const department = document.getElementById('regDept').value;
             const account = document.getElementById('regAccount').value.trim();
+            const password = document.getElementById('regPassword').value;
 
-            if (!name || !department || !account) {
+            if (!name || !department || !account || !password) {
                 showMsg('regMsg', '请填写所有字段');
                 return;
             }
@@ -224,7 +234,7 @@
                 const res = await fetch('/api/register', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ account, name, department })
+                    body: JSON.stringify({ account, name, department, password })
                 });
 
                 const data = await res.json();
