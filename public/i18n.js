@@ -88,6 +88,16 @@
             noMonthRecords: '该月无记录',
             userDeleted: '账户已删除',
             selectMonthAlert: '请先选择月份',
+            editBtn: '编辑',
+            editUserTitle: '编辑账户',
+            passwordFieldLabel: '密码:',
+            saveBtn: '保存',
+            saveSuccess: '保存成功',
+            saveFailed: '保存失败',
+            forgotPassword: '忘记密码?',
+            forgotPasswordMsg: '请联系管理员重置密码',
+            accountFieldLabel: '账号:',
+            nameFieldLabel: '姓名:',
         },
         en: {
             // Common
@@ -176,6 +186,16 @@
             noMonthRecords: 'No records this month',
             userDeleted: 'Account deleted',
             selectMonthAlert: 'Please select a month',
+            editBtn: 'Edit',
+            editUserTitle: 'Edit Account',
+            passwordFieldLabel: 'Password:',
+            saveBtn: 'Save',
+            saveSuccess: 'Saved',
+            saveFailed: 'Save failed',
+            forgotPassword: 'Forgot password?',
+            forgotPasswordMsg: 'Please contact admin to reset password',
+            accountFieldLabel: 'Account:',
+            nameFieldLabel: 'Name:',
         }
     };
 
@@ -191,6 +211,8 @@
         '注册失败': 'Registration failed',
         '删除失败': 'Delete failed',
         '账号不存在': 'Account not found',
+        '密码不能为空': 'Password cannot be empty',
+        '保存失败': 'Save failed',
     };
 
     // Department groups with optgroup support

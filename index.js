@@ -348,6 +348,40 @@ app.get('/api/export', async (req, res) => {
     }
 });
 
+// Get single user details (for admin editing)
+app.get('/api/users/:account', (req, res) => {
+    const account = req.params.account;
+    db.get('SELECT Account, Name, Department, Password FROM Users WHERE Account = ?', [account], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: '服务器错误' });
+        }
+        if (!row) {
+            return res.status(404).json({ error: '账号不存在' });
+        }
+        res.json(row);
+    });
+});
+
+// Update user password (admin)
+app.put('/api/users/:account', (req, res) => {
+    const account = req.params.account;
+    const { password } = req.body;
+
+    if (!password) {
+        return res.status(400).json({ error: '密码不能为空' });
+    }
+
+    db.run('UPDATE Users SET Password = ? WHERE Account = ?', [password, account], function (err) {
+        if (err) {
+            return res.status(500).json({ error: '保存失败' });
+        }
+        if (this.changes === 0) {
+            return res.status(404).json({ error: '账号不存在' });
+        }
+        res.json({ success: true });
+    });
+});
+
 // Get all registered users
 app.get('/api/users', (req, res) => {
     const sql = `

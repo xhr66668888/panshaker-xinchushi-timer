@@ -262,6 +262,35 @@
         </div>
     </div>
 
+    <!-- Modal for Edit User -->
+    <div id="editUserModal" class="modal">
+        <div class="window modal-content" style="width: 380px;">
+            <div class="title-bar">
+                <div class="title-bar-text" id="editUserTitle" data-i18n="editUserTitle">编辑账户</div>
+                <div class="title-bar-controls">
+                    <button aria-label="Close" onclick="closeEditUser()"></button>
+                </div>
+            </div>
+            <div class="window-body">
+                <div class="field-row" style="margin-bottom:8px;">
+                    <label style="width:50px;text-align:right;margin-right:8px;" data-i18n="accountFieldLabel">账号:</label>
+                    <input id="editAccount" type="text" readonly style="flex:1;background:#dfdfdf;" />
+                </div>
+                <div class="field-row" style="margin-bottom:8px;">
+                    <label style="width:50px;text-align:right;margin-right:8px;" data-i18n="nameFieldLabel">姓名:</label>
+                    <input id="editName" type="text" readonly style="flex:1;background:#dfdfdf;" />
+                </div>
+                <div class="field-row" style="margin-bottom:8px;">
+                    <label style="width:50px;text-align:right;margin-right:8px;" data-i18n="passwordFieldLabel">密码:</label>
+                    <input id="editPassword" type="text" style="flex:1;" />
+                </div>
+                <div style="text-align:right;margin-top:12px;">
+                    <button onclick="saveUser()" style="width:80px;" data-i18n="saveBtn">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="i18n.js"></script>
     <script>
         // Auth check
@@ -388,11 +417,15 @@
         window.onclick = function (event) {
             const modal = document.getElementById('detailsModal');
             const userModal = document.getElementById('userRecordsModal');
+            const editModal = document.getElementById('editUserModal');
             if (event.target == modal) {
                 closeDetails();
             }
             if (event.target == userModal) {
                 closeUserRecords();
+            }
+            if (event.target == editModal) {
+                closeEditUser();
             }
         }
 
@@ -423,6 +456,7 @@
                         <td>${user.TotalHours.toFixed(2)}h</td>
                         <td>
                             <button onclick="viewUser('${safeName}')">${i18n.t('viewBtn')}</button>
+                            <button onclick="editUser('${safeAccount}')">${i18n.t('editBtn')}</button>
                             <button onclick="deleteUser('${safeAccount}', '${safeName}')">${i18n.t('deleteUserBtn')}</button>
                         </td>
                     `;
@@ -486,6 +520,54 @@
             document.getElementById('userRecordsModal').style.display = 'none';
             document.getElementById('userRecordsTitle').setAttribute('data-i18n', 'userRecordsTitle');
             currentViewUser = '';
+        }
+
+        let currentEditAccount = '';
+
+        async function editUser(account) {
+            try {
+                const res = await fetch(`/api/users/${encodeURIComponent(account)}`);
+                if (!res.ok) throw new Error(i18n.t('loadFailed'));
+                const user = await res.json();
+
+                document.getElementById('editAccount').value = user.Account;
+                document.getElementById('editName').value = user.Name;
+                document.getElementById('editPassword').value = user.Password;
+                currentEditAccount = user.Account;
+                document.getElementById('editUserModal').style.display = 'flex';
+            } catch (err) {
+                alert(i18n.t('loadFailed'));
+            }
+        }
+
+        async function saveUser() {
+            const password = document.getElementById('editPassword').value;
+            if (!password) {
+                alert(i18n.t('fillAllFields'));
+                return;
+            }
+            try {
+                const res = await fetch(`/api/users/${encodeURIComponent(currentEditAccount)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                if (res.ok) {
+                    alert(i18n.t('saveSuccess'));
+                    closeEditUser();
+                    loadUsers();
+                } else {
+                    const data = await res.json();
+                    alert(i18n.tErr(data.error) || i18n.t('saveFailed'));
+                }
+            } catch (e) {
+                alert(i18n.t('networkError'));
+            }
+        }
+
+        function closeEditUser() {
+            document.getElementById('editUserModal').style.display = 'none';
+            currentEditAccount = '';
         }
 
         async function deleteUser(account, name) {
