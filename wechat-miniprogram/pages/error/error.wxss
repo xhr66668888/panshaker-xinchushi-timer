@@ -1,0 +1,41 @@
+.container {
+  min-height: 100vh;
+  padding: 24px;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.panel {
+  width: 100%;
+  max-width: 560rpx;
+  background: #ffffff;
+  border-radius: 12rpx;
+  padding: 28rpx;
+  box-sizing: border-box;
+}
+
+.title {
+  font-size: 34rpx;
+  font-weight: 600;
+  margin-bottom: 16rpx;
+  color: #1f1f1f;
+}
+
+.desc {
+  font-size: 28rpx;
+  color: #666666;
+  margin-bottom: 10rpx;
+}
+
+.domain {
+  font-size: 26rpx;
+  color: #008080;
+  margin-bottom: 24rpx;
+  word-break: break-all;
+}
+
+button {
+  margin-bottom: 12rpx;
+}

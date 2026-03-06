@@ -1,0 +1,13 @@
+{
+  "pages": [
+    "pages/webview/webview",
+    "pages/error/error"
+  ],
+  "window": {
+    "navigationBarTitleText": "Panshaker 工时系统",
+    "navigationBarBackgroundColor": "#008080",
+    "navigationBarTextStyle": "white",
+    "backgroundTextStyle": "light"
+  },
+  "sitemapLocation": "sitemap.json"
+}

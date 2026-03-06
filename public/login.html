@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>系统登录 - Panshaker</title>
     <link rel="stylesheet" href="https://unpkg.com/98.css">
     <style>
@@ -61,7 +61,7 @@
 
         #langToggle {
             position: fixed;
-            bottom: 10px;
+            bottom: calc(10px + env(safe-area-inset-bottom));
             right: 10px;
             z-index: 9999;
             padding: 2px 8px;

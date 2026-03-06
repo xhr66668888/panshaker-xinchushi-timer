@@ -63,6 +63,7 @@
             selectMonthLabel: '选择月份:',
             queryBtn: '查询',
             exportBtn: '导出 Excel',
+            exportDisabledInMiniProgram: '微信小程序内不支持直接下载 Excel，请在浏览器中导出。',
             thName: '姓名',
             thDept: '部门',
             thTotalHours: '累计投入工时 (小时)',
@@ -161,6 +162,7 @@
             selectMonthLabel: 'Month:',
             queryBtn: 'Query',
             exportBtn: 'Export Excel',
+            exportDisabledInMiniProgram: 'Excel download is not supported inside WeChat mini program. Please export in a browser.',
             thName: 'Name',
             thDept: 'Department',
             thTotalHours: 'Total Hours',
@@ -246,6 +248,24 @@
         return localStorage.getItem('ps_lang') || 'zh';
     }
 
+    const CHANNEL_STORAGE_KEY = 'ps_channel';
+    const MINI_PROGRAM_CHANNEL = 'wxmini';
+
+    function isMiniProgramContext() {
+        const query = new URLSearchParams(window.location.search);
+        if (query.get('from') === MINI_PROGRAM_CHANNEL) {
+            localStorage.setItem(CHANNEL_STORAGE_KEY, MINI_PROGRAM_CHANNEL);
+            return true;
+        }
+
+        if (localStorage.getItem(CHANNEL_STORAGE_KEY) === MINI_PROGRAM_CHANNEL) {
+            return true;
+        }
+
+        const ua = (navigator.userAgent || '').toLowerCase();
+        return window.__wxjs_environment === 'miniprogram' || ua.includes('miniprogram');
+    }
+
     function t(key) {
         const lang = getLang();
         return (T[lang] && T[lang][key]) || T.zh[key] || key;
@@ -326,6 +346,9 @@
         if (btn) btn.textContent = lang === 'zh' ? 'EN' : '中文';
     }
 
+    // Persist channel marker when a mini-program query flag is present.
+    isMiniProgramContext();
+
     // Expose globally
-    window.i18n = { t, tErr, getLang, toggleLang, applyLang, DEPT_GROUPS, T };
+    window.i18n = { t, tErr, getLang, toggleLang, applyLang, isMiniProgramContext, DEPT_GROUPS, T };
 })();

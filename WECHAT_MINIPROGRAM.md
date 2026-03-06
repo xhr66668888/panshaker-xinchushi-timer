@@ -1,189 +1,133 @@
-# 微信小程序开发指南
+# 微信小程序最佳落地方案（适配已上线 Azure Web App）
 
-## 方案概述
+## 结论（推荐方案）
 
-使用微信小程序的 `web-view` 组件全屏嵌入现有 Azure 网页应用。后端和前端代码完全不变，只需创建一个极简的小程序壳。
+对于你当前项目，**最优解不是重写小程序页面**，而是：
 
-- **AppID:** `wx8e51282f8fdab0a7`
-- **Web 应用地址:** `https://panshaker-timer.azurewebsites.net`
+- 使用微信小程序 `web-view` 全屏承载现有 Web App
+- 保持后端与核心前端逻辑不变（降低风险、最快上线）
+- 对 H5 做少量“微信小程序场景”兼容增强（本仓库已落地）
+
+该方案在“开发成本、上线速度、稳定性、后续维护”之间最均衡，适合你的现状：**网站已部署在 Azure，小程序仅作为访问入口**。
 
 ---
 
-## 第一步：创建小程序项目文件
+## 为什么这是最优解
 
-在仓库根目录创建 `wechat-miniprogram/` 目录，包含以下文件：
+1. **改动最小**
+   现有 API、数据库、页面逻辑全部可复用，不需要重构业务。
 
-```
+2. **上线最快**
+   新增一个小程序壳即可进入提审流程，交付速度最快。
+
+3. **维护成本低**
+   Web 与小程序不分叉，功能迭代仍以 Web 为主，小程序自动受益。
+
+4. **移动端可用性可控**
+   通过小程序壳参数、错误兜底页、H5 端轻适配，可覆盖微信手机端主要场景。
+
+---
+
+## 已完成的代码落地
+
+仓库内已创建并提交以下目录结构：
+
+```text
 wechat-miniprogram/
 ├── project.config.json
 ├── app.json
 ├── app.js
 ├── app.wxss
+├── sitemap.json
 └── pages/
-    └── webview/
-        ├── webview.wxml
-        ├── webview.js
-        └── webview.json
+    ├── webview/
+    │   ├── webview.wxml
+    │   ├── webview.js
+    │   └── webview.json
+    └── error/
+        ├── error.wxml
+        ├── error.js
+        ├── error.json
+        └── error.wxss
 ```
 
-### project.config.json
+### 关键增强点
 
-```json
-{
-  "description": "Panshaker Timer 微信小程序",
-  "setting": {
-    "urlCheck": true,
-    "es6": true,
-    "enhance": true,
-    "postcss": true,
-    "minified": true,
-    "newFeature": false,
-    "coverView": true,
-    "autoAudits": false,
-    "checkSiteMap": true,
-    "uploadWithSourceMap": true,
-    "compileHotReLoad": false,
-    "babelSetting": {
-      "ignore": [],
-      "disablePlugins": [],
-      "outputPath": ""
-    }
-  },
-  "compileType": "miniprogram",
-  "libVersion": "3.3.4",
-  "appid": "wx8e51282f8fdab0a7",
-  "projectname": "panshaker-timer",
-  "condition": {},
-  "editorSetting": {
-    "tabIndent": "insertSpaces",
-    "tabSize": 2
-  }
-}
-```
+- `webview.js` 增加了：
+  - 仅允许 `https://panshaker-timer.azurewebsites.net` 同源地址
+  - 仅允许白名单页面路径（`/login.html`、`/index.html`、`/stats.html`）
+  - 自动注入 `from=wxmini&entry=miniprogram` 参数
+  - 加载失败自动跳转错误兜底页
 
-### app.json
+- 新增 `error` 页面：
+  - 引导排查业务域名配置
+  - 提供重试、回首页、复制失败链接能力
 
-```json
-{
-  "pages": [
-    "pages/webview/webview"
-  ],
-  "window": {
-    "navigationBarTitleText": "Panshaker 工时系统",
-    "navigationBarBackgroundColor": "#008080",
-    "navigationBarTextStyle": "white"
-  }
-}
-```
+- Web 页面轻适配（`public/`）：
+  - `login.html`、`index.html`、`stats.html` 添加 `viewport-fit=cover`
+  - 语言切换按钮适配刘海屏安全区（`env(safe-area-inset-bottom)`）
+  - `stats.html` 在小程序环境阻止 Excel 导出并提示“请在浏览器导出”
 
-### app.js
-
-```javascript
-App({
-  onLaunch() {}
-})
-```
-
-### app.wxss
-
-```css
-/* 全局样式 - web-view 全屏，无需额外样式 */
-```
-
-### pages/webview/webview.wxml
-
-```html
-<web-view src="https://panshaker-timer.azurewebsites.net/login.html"></web-view>
-```
-
-### pages/webview/webview.js
-
-```javascript
-Page({
-  data: {},
-  onLoad() {}
-})
-```
-
-### pages/webview/webview.json
-
-```json
-{
-  "navigationStyle": "custom"
-}
-```
-
-> `"navigationStyle": "custom"` 隐藏小程序原生导航栏，让 web-view 全屏。如果想保留顶部标题栏，去掉这个设置。
+- `.gitignore` 已新增：
+  - `wechat-miniprogram/project.private.config.json`
 
 ---
 
-## 第二步：配置微信业务域名
+## 你现在需要在微信后台做的配置
 
-1. 登录 [微信公众平台](https://mp.weixin.qq.com/)
-2. 进入 **开发管理** → **开发设置** → **业务域名**
-3. 点击 **开始配置**，扫码验证身份
-4. 下载微信提供的校验文件（如 `Rl1bnlUxxxxxx.txt`）
-5. 将校验文件放入项目 `public/` 目录
-6. 推送到 `main` 分支（GitHub Actions 自动部署到 Azure）
-7. 浏览器验证 `https://panshaker-timer.azurewebsites.net/<校验文件名>` 可访问
-8. 回到微信后台，输入域名：`panshaker-timer.azurewebsites.net`（不含 `https://`）
-9. 点击 **保存并提交**
+1. 登录 <https://mp.weixin.qq.com/>
+2. 进入 **开发管理 -> 开发设置 -> 业务域名**
+3. 下载并放置微信校验文件到 `public/`（根路径可访问）
+4. 发布到 Azure 后，确认可访问：
+   - `https://panshaker-timer.azurewebsites.net/<校验文件名>`
+5. 回到微信后台提交域名：
+   - `panshaker-timer.azurewebsites.net`（不带 `https://`）
 
-**注意：**
-- 只需配置"业务域名"，不需要配置"服务器域名"
-- 服务端不需要任何代码改动，`express.static('public')` 已经可以提供校验文件
-- 域名必须是 HTTPS（Azure 已自动提供）
+注意：本项目只需配置**业务域名**。
 
 ---
 
-## 第三步：测试和发布
+## 微信开发者工具导入与调试
 
-### 本地测试
+1. 打开微信开发者工具
+2. 导入目录：`wechat-miniprogram/`
+3. AppID 使用：`wx8e51282f8fdab0a7`
+4. 默认入口页：`pages/webview/webview`
+5. 真机预览验证登录、录入、查询流程
 
-1. 下载安装 [微信开发者工具](https://developers.weixin.qq.com/miniprogram/dev/devtools/download.html)
-2. 打开开发者工具，导入 `wechat-miniprogram/` 目录
-3. 确认 AppID 为 `wx8e51282f8fdab0a7`
-4. 在模拟器中确认网页正常加载
-5. 点击 **预览** 生成二维码，用微信扫码在真机测试
+可选测试路径（在工具中加启动参数）：
 
-### 上传发布
-
-1. 在开发者工具中点击 **上传**
-2. 设置版本号（如 `1.0.0`）和描述
-3. 登录 `mp.weixin.qq.com` → **版本管理**
-4. 在"开发版本"中找到上传的版本
-5. 点击 **提交审核**
-6. 审核通过后点击 **发布**
+- 登录页：`path=/login.html`
+- 录入页：`path=/index.html`
+- 统计页：`path=/stats.html`
 
 ---
 
-## 第四步：更新 .gitignore
+## 线上发布建议
 
-添加以下内容：
-
-```
-wechat-miniprogram/project.private.config.json
-```
-
-（微信开发工具自动生成的本地配置文件，不应提交）
+1. 小程序先发“体验版”给内部核心用户
+2. 收集 1~2 天反馈后再提审正式版
+3. 提审备注建议写：
+   - “企业内部工时管理工具，基于已备案 HTTPS 网站通过 web-view 接入”
 
 ---
 
-## 已知限制
+## 已知限制与处理策略
 
-| 问题 | 说明 | 解决方案 |
-|------|------|----------|
-| Excel 导出 | web-view 中文件下载可能不正常 | 管理员用普通浏览器导出 |
-| 审核风险 | 纯 web-view 小程序可能被质疑 | 提交时说明"内部工时管理工具" |
-| CDN 依赖 | 98.css 从 unpkg.com 加载 | 如有问题，下载到 `public/` 本地提供 |
+1. **Excel 导出在小程序内体验不佳**
+   已在 `stats.html` 中提示改用浏览器导出。
+
+2. **第三方 CDN（`unpkg.com`）在部分网络可能不稳定**
+   建议下一步把 `98.css` 改为本地静态资源（`public/vendor/`），进一步提高稳定性。
+
+3. **纯 web-view 审核沟通风险**
+   在提审说明中明确“内部业务工具”可降低风险。
 
 ---
 
-## 工作原理
+## 后续可选优化（不影响当前上线）
 
-- `web-view` 组件在小程序中嵌入一个全屏浏览器
-- 网页的 origin 是 `https://panshaker-timer.azurewebsites.net`
-- 所有 API 调用使用相对路径（`/api/login` 等），自动解析到 Azure 服务器
-- 页面跳转（`login.html` → `index.html`）也是相对路径，在 web-view 中正常工作
-- `localStorage` 在 web-view 中可用，登录状态正常保持
-- 现有的响应式 CSS（`@media max-width: 600px`）适配手机屏幕
+1. 将 `98.css` 本地化，避免外链波动。
+2. 给 H5 增加 `from=wxmini` 专属 UI（例如隐藏不必要按钮）。
+3. 增加小程序内埋点（页面打开失败率、加载耗时）。
+

@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>当月工时统计 - Panshaker</title>
     <link rel="stylesheet" href="https://unpkg.com/98.css">
     <style>
@@ -90,7 +90,7 @@
 
         #langToggle {
             position: fixed;
-            bottom: 10px;
+            bottom: calc(10px + env(safe-area-inset-bottom));
             right: 10px;
             z-index: 9999;
             padding: 2px 8px;
@@ -137,7 +137,7 @@
                 <label for="monthPicker" data-i18n="selectMonthLabel">选择月份:</label>
                 <input type="month" id="monthPicker">
                 <button onclick="loadStats()" data-i18n="queryBtn">查询</button>
-                <button onclick="exportExcel()" data-i18n="exportBtn">导出 Excel</button>
+                <button id="exportBtn" onclick="exportExcel()" data-i18n="exportBtn">导出 Excel</button>
                 <div style="flex-grow:1;"></div>
                 <button onclick="logout()" data-i18n="logout">注销退出</button>
             </div>
@@ -301,6 +301,18 @@
         // Apply language
         i18n.applyLang();
 
+        const isMiniProgram = i18n.isMiniProgramContext();
+        if (isMiniProgram) {
+            const exportBtn = document.getElementById('exportBtn');
+            exportBtn.title = i18n.t('exportDisabledInMiniProgram');
+
+            document.getElementById('langToggle').addEventListener('click', () => {
+                setTimeout(() => {
+                    exportBtn.title = i18n.t('exportDisabledInMiniProgram');
+                }, 0);
+            });
+        }
+
         function logout() {
             localStorage.removeItem('ps_role');
             window.location.href = 'login.html';
@@ -399,6 +411,11 @@
         }
 
         function exportExcel() {
+            if (isMiniProgram) {
+                alert(i18n.t('exportDisabledInMiniProgram'));
+                return;
+            }
+
             const month = document.getElementById('monthPicker').value;
             if (!month) {
                 alert(i18n.t('selectMonthAlert'));
