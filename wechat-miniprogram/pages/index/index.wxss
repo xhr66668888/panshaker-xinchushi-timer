@@ -1,0 +1,8 @@
+.section-title {
+  font-size: 24rpx;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 12rpx;
+  padding-bottom: 4rpx;
+  border-bottom: 2rpx solid #808080;
+}

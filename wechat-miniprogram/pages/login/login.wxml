@@ -1,0 +1,77 @@
+<view class="container">
+
+  <!-- Login Card -->
+  <view class="card" wx:if="{{mode === 'login'}}">
+    <view class="card-title">系统登录</view>
+    <view class="card-body">
+      <view style="text-align:center; margin-bottom:20rpx; font-size:26rpx;">
+        欢迎使用 Panshaker 工时系统
+      </view>
+
+      <view class="field-row">
+        <text class="field-label">账号:</text>
+        <input class="field-input" type="number" placeholder="输入数字账号"
+               value="{{account}}" bindinput="onAccountInput" />
+      </view>
+
+      <view class="field-row">
+        <text class="field-label">密码:</text>
+        <input class="field-input" type="text" password placeholder="输入密码"
+               value="{{password}}" bindinput="onPasswordInput" />
+      </view>
+
+      <view class="msg msg-error" wx:if="{{errorMsg}}">{{errorMsg}}</view>
+
+      <view class="btn-row" style="justify-content: space-between;">
+        <view style="display:flex; gap:16rpx;">
+          <text class="link-btn" bindtap="switchToRegister">注册新账号</text>
+        </view>
+        <view class="btn btn-primary" bindtap="doLogin">登录</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- Register Card -->
+  <view class="card" wx:if="{{mode === 'register'}}">
+    <view class="card-title">注册新账号</view>
+    <view class="card-body">
+
+      <view class="field-row">
+        <text class="field-label">姓名:</text>
+        <input class="field-input" placeholder="真实姓名"
+               value="{{regName}}" bindinput="onRegNameInput" />
+      </view>
+
+      <view class="field-row">
+        <text class="field-label">部门:</text>
+        <picker mode="selector" range="{{deptList}}" bindchange="onDeptChange">
+          <view class="field-picker {{regDept ? '' : 'placeholder'}}">
+            {{regDept || '请选择...'}}
+          </view>
+        </picker>
+      </view>
+
+      <view class="field-row">
+        <text class="field-label">账号:</text>
+        <input class="field-input" type="number" placeholder="设置一个数字账号"
+               value="{{regAccount}}" bindinput="onRegAccountInput" />
+      </view>
+
+      <view class="field-row">
+        <text class="field-label">密码:</text>
+        <input class="field-input" type="text" password placeholder="设置登录密码"
+               value="{{regPassword}}" bindinput="onRegPasswordInput" />
+      </view>
+
+      <view class="msg {{regMsgType === 'success' ? 'msg-success' : 'msg-error'}}" wx:if="{{regMsg}}">
+        {{regMsg}}
+      </view>
+
+      <view class="btn-row" style="justify-content: space-between;">
+        <text class="link-btn" bindtap="switchToLogin">返回登录</text>
+        <view class="btn btn-primary" bindtap="doRegister">注册</view>
+      </view>
+    </view>
+  </view>
+
+</view>

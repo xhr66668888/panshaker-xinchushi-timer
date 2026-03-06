@@ -1,0 +1,99 @@
+<view class="container">
+
+  <!-- Record Form -->
+  <view class="card">
+    <view class="card-title">海外工时记录系统</view>
+    <view class="card-body">
+
+      <view class="section-title">基本信息</view>
+
+      <view class="field-row">
+        <text class="field-label">姓名:</text>
+        <input class="field-input" value="{{name}}" disabled />
+      </view>
+
+      <view class="field-row">
+        <text class="field-label">部门:</text>
+        <input class="field-input" value="{{department}}" disabled />
+      </view>
+
+      <view class="field-row">
+        <text class="field-label">工作内容:</text>
+        <input class="field-input" placeholder="例如: 开发海外官网后台"
+               value="{{taskDesc}}" bindinput="onTaskInput" />
+      </view>
+
+      <view class="section-title" style="margin-top:16rpx;">工作时间</view>
+
+      <view class="field-row">
+        <text class="field-label">开始日期:</text>
+        <picker mode="date" value="{{startDate}}" bindchange="onStartDateChange">
+          <view class="field-picker">{{startDate}}</view>
+        </picker>
+      </view>
+
+      <view class="field-row">
+        <text class="field-label">开始时间:</text>
+        <picker mode="time" value="{{startTime}}" bindchange="onStartTimeChange">
+          <view class="field-picker">{{startTime}}</view>
+        </picker>
+      </view>
+
+      <view class="field-row">
+        <text class="field-label">结束日期:</text>
+        <picker mode="date" value="{{endDate}}" bindchange="onEndDateChange">
+          <view class="field-picker">{{endDate}}</view>
+        </picker>
+      </view>
+
+      <view class="field-row">
+        <text class="field-label">结束时间:</text>
+        <picker mode="time" value="{{endTime}}" bindchange="onEndTimeChange">
+          <view class="field-picker">{{endTime}}</view>
+        </picker>
+      </view>
+
+      <view class="msg {{msgType === 'success' ? 'msg-success' : 'msg-error'}}" wx:if="{{msg}}">
+        {{msg}}
+      </view>
+
+      <view class="btn-row" style="justify-content: space-between;">
+        <view class="btn" bindtap="doLogout">注销退出</view>
+        <view style="display:flex; gap:16rpx;">
+          <view class="btn" bindtap="resetForm">重置</view>
+          <view class="btn btn-primary" bindtap="doSubmit">提交记录</view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- Recent Records -->
+  <view class="card" style="max-width:700rpx;">
+    <view class="card-title">提交记录</view>
+    <view class="card-body" style="padding:0;">
+      <scroll-view scroll-y class="table-wrap" style="max-height:360rpx;">
+        <view class="table-header">
+          <text class="table-cell" style="width:60rpx;">#</text>
+          <text class="table-cell" style="flex:1;">项目/内容</text>
+          <text class="table-cell" style="width:120rpx;">耗时</text>
+          <text class="table-cell" style="width:100rpx;">操作</text>
+        </view>
+
+        <view wx:if="{{records.length === 0}}" style="text-align:center;padding:20rpx;font-size:24rpx;color:#888;">
+          暂无近期提交记录
+        </view>
+
+        <view class="table-row" wx:for="{{records}}" wx:key="Id">
+          <text class="table-cell" style="width:60rpx;">{{index + 1}}</text>
+          <text class="table-cell" style="flex:1;">{{item.TaskDescription}}</text>
+          <text class="table-cell" style="width:120rpx;">{{item.hours}}h</text>
+          <view class="table-cell" style="width:100rpx;">
+            <view class="btn" style="font-size:20rpx;height:40rpx;line-height:40rpx;min-width:auto;padding:0 12rpx;"
+                  data-id="{{item.Id}}" bindtap="doDelete">删除</view>
+          </view>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+
+</view>

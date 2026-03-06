@@ -1,5 +1,5 @@
 {
-  "description": "Panshaker Timer 微信小程序",
+  "description": "Panshaker Timer 微信小程序（原生版）",
   "setting": {
     "urlCheck": true,
     "es6": true,
@@ -23,7 +23,6 @@
   "appid": "wx8e51282f8fdab0a7",
   "projectname": "panshaker-timer",
   "simulatorType": "wechat",
-  "srcMiniprogramRoot": "",
   "condition": {},
   "editorSetting": {
     "tabIndent": "insertSpaces",

@@ -1,0 +1,171 @@
+<view class="container" style="justify-content:flex-start; padding-top:20rpx;">
+
+  <!-- Monthly Stats -->
+  <view class="card" style="max-width:710rpx;">
+    <view class="card-title">海外项目当月国内工时核算</view>
+    <view class="card-body">
+
+      <view class="toolbar">
+        <text style="font-size:24rpx;">选择月份:</text>
+        <picker mode="date" fields="month" value="{{month}}" bindchange="onMonthChange">
+          <view class="field-picker" style="width:200rpx;">{{month}}</view>
+        </picker>
+        <view class="btn" bindtap="loadStats">查询</view>
+        <view style="flex:1;"></view>
+        <view class="btn" bindtap="doLogout">注销退出</view>
+      </view>
+
+      <scroll-view scroll-y class="table-wrap" style="max-height:500rpx;">
+        <view class="table-header">
+          <text class="table-cell" style="flex:1;">姓名</text>
+          <text class="table-cell" style="flex:1;">部门</text>
+          <text class="table-cell" style="width:160rpx;">累计工时(h)</text>
+        </view>
+
+        <view wx:if="{{stats.length === 0}}" style="text-align:center;padding:20rpx;font-size:24rpx;color:#888;">
+          该月无数据
+        </view>
+
+        <view class="table-row" wx:for="{{stats}}" wx:key="employeeName"
+              data-name="{{item.employeeName}}" bindtap="showDetail">
+          <text class="table-cell" style="flex:1;color:blue;text-decoration:underline;">
+            {{item.employeeName}}
+          </text>
+          <text class="table-cell" style="flex:1;">{{item.department}}</text>
+          <text class="table-cell" style="width:160rpx;">{{item.totalHoursStr}}</text>
+        </view>
+
+        <view class="total-row" wx:if="{{stats.length > 0}}">
+          <text class="table-cell" style="flex:2;">总计:</text>
+          <text class="table-cell" style="width:160rpx;">{{grandTotal}}</text>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+
+  <!-- Account Management -->
+  <view class="card" style="max-width:710rpx;">
+    <view class="card-title">账户管理</view>
+    <view class="card-body" style="padding:0;">
+      <scroll-view scroll-y class="table-wrap" style="max-height:400rpx;">
+        <view class="table-header">
+          <text class="table-cell" style="width:100rpx;">账号</text>
+          <text class="table-cell" style="flex:1;">姓名</text>
+          <text class="table-cell" style="flex:1;">部门</text>
+          <text class="table-cell" style="width:130rpx;">累计工时</text>
+          <text class="table-cell" style="width:180rpx;">操作</text>
+        </view>
+
+        <view wx:if="{{users.length === 0}}" style="text-align:center;padding:20rpx;font-size:24rpx;color:#888;">
+          暂无注册账户
+        </view>
+
+        <view class="table-row" wx:for="{{users}}" wx:key="Account">
+          <text class="table-cell" style="width:100rpx;">{{item.Account}}</text>
+          <text class="table-cell" style="flex:1;">{{item.Name}}</text>
+          <text class="table-cell" style="flex:1;">{{item.deptShort}}</text>
+          <text class="table-cell" style="width:130rpx;">{{item.hoursStr}}h</text>
+          <view class="table-cell" style="width:180rpx; display:flex; gap:6rpx;">
+            <view class="small-btn" data-name="{{item.Name}}" bindtap="viewUserRecords">查看</view>
+            <view class="small-btn" data-account="{{item.Account}}" bindtap="editUser">编辑</view>
+            <view class="small-btn" data-account="{{item.Account}}" data-name="{{item.Name}}" bindtap="deleteUser">删除</view>
+          </view>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+
+  <!-- Employee Detail Modal -->
+  <view class="modal-overlay" wx:if="{{showDetailModal}}" bindtap="closeDetail">
+    <view class="modal-card" catchtap>
+      <view class="card-title">{{detailTitle}}</view>
+      <view class="card-body" style="padding:0;">
+        <scroll-view scroll-y style="max-height:500rpx;">
+          <view class="table-header">
+            <text class="table-cell" style="width:160rpx;">日期</text>
+            <text class="table-cell" style="width:200rpx;">时间段</text>
+            <text class="table-cell" style="flex:1;">工作内容</text>
+            <text class="table-cell" style="width:120rpx;">工时</text>
+          </view>
+
+          <view wx:if="{{detailRecords.length === 0}}" style="text-align:center;padding:20rpx;font-size:24rpx;color:#888;">
+            无详细记录
+          </view>
+
+          <view class="table-row" wx:for="{{detailRecords}}" wx:key="Id">
+            <text class="table-cell" style="width:160rpx;">{{item.dateStr}}</text>
+            <text class="table-cell" style="width:200rpx;">{{item.timeRange}}</text>
+            <text class="table-cell" style="flex:1;">{{item.TaskDescription}}</text>
+            <text class="table-cell" style="width:120rpx;">{{item.hoursStr}}h</text>
+          </view>
+        </scroll-view>
+      </view>
+      <view style="text-align:right; padding:12rpx;">
+        <view class="btn" bindtap="closeDetail">关闭</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- User Records Modal -->
+  <view class="modal-overlay" wx:if="{{showUserRecordsModal}}" bindtap="closeUserRecords">
+    <view class="modal-card" catchtap>
+      <view class="card-title">{{userRecordsTitle}}</view>
+      <view class="card-body" style="padding:8rpx;">
+        <view class="toolbar" style="margin-bottom:12rpx;">
+          <text style="font-size:24rpx;">月份:</text>
+          <picker mode="date" fields="month" value="{{userMonth}}" bindchange="onUserMonthChange">
+            <view class="field-picker" style="width:200rpx;">{{userMonth}}</view>
+          </picker>
+          <view class="btn" bindtap="loadUserRecords">查询</view>
+        </view>
+        <scroll-view scroll-y style="max-height:400rpx;">
+          <view class="table-header">
+            <text class="table-cell" style="width:160rpx;">日期</text>
+            <text class="table-cell" style="width:200rpx;">时间段</text>
+            <text class="table-cell" style="flex:1;">工作内容</text>
+            <text class="table-cell" style="width:120rpx;">工时</text>
+          </view>
+
+          <view wx:if="{{userRecords.length === 0}}" style="text-align:center;padding:20rpx;font-size:24rpx;color:#888;">
+            该月无记录
+          </view>
+
+          <view class="table-row" wx:for="{{userRecords}}" wx:key="Id">
+            <text class="table-cell" style="width:160rpx;">{{item.dateStr}}</text>
+            <text class="table-cell" style="width:200rpx;">{{item.timeRange}}</text>
+            <text class="table-cell" style="flex:1;">{{item.TaskDescription}}</text>
+            <text class="table-cell" style="width:120rpx;">{{item.hoursStr}}h</text>
+          </view>
+        </scroll-view>
+      </view>
+      <view style="text-align:right; padding:12rpx;">
+        <view class="btn" bindtap="closeUserRecords">关闭</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- Edit User Modal -->
+  <view class="modal-overlay" wx:if="{{showEditModal}}" bindtap="closeEdit">
+    <view class="modal-card" style="max-width:500rpx;" catchtap>
+      <view class="card-title">编辑账户</view>
+      <view class="card-body">
+        <view class="field-row">
+          <text class="field-label">账号:</text>
+          <input class="field-input" value="{{editAccount}}" disabled style="background:#dfdfdf;" />
+        </view>
+        <view class="field-row">
+          <text class="field-label">姓名:</text>
+          <input class="field-input" value="{{editName}}" disabled style="background:#dfdfdf;" />
+        </view>
+        <view class="field-row">
+          <text class="field-label">密码:</text>
+          <input class="field-input" value="{{editPassword}}" bindinput="onEditPasswordInput" />
+        </view>
+        <view style="text-align:right; margin-top:16rpx;">
+          <view class="btn btn-primary" bindtap="saveUser">保存</view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+</view>

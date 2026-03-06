@@ -1,0 +1,52 @@
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 16rpx;
+  flex-wrap: wrap;
+}
+
+.small-btn {
+  font-size: 20rpx;
+  height: 36rpx;
+  line-height: 36rpx;
+  padding: 0 10rpx;
+  background: #c0c0c0;
+  border: 2rpx solid;
+  border-color: #ffffff #808080 #808080 #ffffff;
+  text-align: center;
+}
+
+.small-btn:active {
+  border-color: #808080 #ffffff #ffffff #808080;
+}
+
+/* Modal overlay */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-card {
+  width: 92%;
+  max-width: 680rpx;
+  max-height: 85vh;
+  background: #c0c0c0;
+  border: 4rpx solid;
+  border-color: #ffffff #808080 #808080 #ffffff;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-card .card-body {
+  overflow: auto;
+  flex: 1;
+}
