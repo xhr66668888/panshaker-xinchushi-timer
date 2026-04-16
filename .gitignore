@@ -1,3 +1,7 @@
 node_modules/
 work_records.db
 wechat-miniprogram/project.private.config.json
+
+# Internal finance source materials (do not ship to repo)
+*.xlsx
+!public/**/*.xlsx

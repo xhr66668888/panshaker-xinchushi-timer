@@ -1,0 +1,1304 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-title-i18n="financePageTitle">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>财务测算 - Panshaker</title>
+    <link rel="stylesheet" href="https://unpkg.com/98.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+    <style>
+        body {
+            background-color: #008080;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .page {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+        .topbar {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .topbar .spacer { flex: 1; }
+        .window { box-shadow: 2px 2px 5px rgba(0,0,0,0.5); }
+        .row { display: flex; gap: 14px; flex-wrap: wrap; }
+        .col { flex: 1; min-width: 320px; }
+
+        /* Dashboard key input grid */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 8px 14px;
+            padding: 8px 4px;
+        }
+        .kpi-grid .field {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            font-size: 12px;
+        }
+        .kpi-grid .field label {
+            font-weight: bold;
+            color: #333;
+        }
+        .kpi-grid .field .money-input {
+            display: flex;
+            gap: 2px;
+        }
+        .kpi-grid .field input[type=number] {
+            flex: 1;
+            min-width: 0;
+        }
+        .currency-toggle {
+            min-width: 34px;
+            padding: 2px 6px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        /* Alert lights */
+        .alerts {
+            display: flex;
+            gap: 14px;
+            padding: 10px;
+            justify-content: space-around;
+            flex-wrap: wrap;
+        }
+        .alert-light {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            background: #c0c0c0;
+            border: 2px inset #dfdfdf;
+            min-width: 230px;
+        }
+        .light-dot {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            box-shadow: inset 1px 1px 2px rgba(0,0,0,0.4);
+        }
+        .light-green { background: radial-gradient(#7fe87f, #169e16); }
+        .light-red   { background: radial-gradient(#ff9090, #b10000); }
+        .light-gray  { background: radial-gradient(#bbb, #666); }
+        .alert-light .alert-title { font-weight: bold; font-size: 13px; }
+        .alert-light .alert-sub   { font-size: 11px; color: #333; }
+
+        /* Chart container */
+        .chart-box {
+            height: 340px;
+            position: relative;
+            background: #fff;
+            border: 2px inset #dfdfdf;
+            padding: 8px;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 2px;
+            margin-bottom: -2px;
+        }
+        .tab-btn {
+            padding: 4px 16px;
+            cursor: pointer;
+            border: 2px outset #dfdfdf;
+            background: #c0c0c0;
+            font-size: 13px;
+            margin-bottom: 2px;
+        }
+        .tab-btn.active {
+            background: #fff;
+            border-bottom: 2px solid #fff;
+            position: relative;
+            z-index: 2;
+            margin-bottom: 0;
+            padding-bottom: 6px;
+        }
+        .tab-panel { display: none; padding: 10px; }
+        .tab-panel.active { display: block; }
+
+        /* Detail tables */
+        table.detail {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            background: #fff;
+        }
+        table.detail th, table.detail td {
+            border: 1px solid #999;
+            padding: 3px 6px;
+            text-align: left;
+        }
+        table.detail th { background: #dfdfdf; }
+        table.detail .group-cell {
+            background: #eef;
+            font-weight: bold;
+            width: 110px;
+        }
+        table.detail tr.total-row { background: #ffffc7; font-weight: bold; }
+        table.detail td.num { text-align: right; font-variant-numeric: tabular-nums; }
+        table.detail input[type=number] {
+            width: 110px;
+            font-size: 12px;
+            text-align: right;
+        }
+        table.detail td.neg { background: #ffd0d0 !important; }
+
+        /* Opex matrix */
+        table.opex {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+            background: #fff;
+        }
+        table.opex th, table.opex td {
+            border: 1px solid #999;
+            padding: 2px 3px;
+            text-align: center;
+        }
+        table.opex th { background: #dfdfdf; font-weight: bold; }
+        table.opex td.name { text-align: left; white-space: nowrap; font-weight: bold; }
+        table.opex input[type=number] {
+            width: 58px;
+            font-size: 11px;
+            text-align: right;
+            padding: 1px;
+        }
+        table.opex tr.sum-row { background: #ffffc7; font-weight: bold; }
+
+        /* Custom cost items */
+        .cost-item-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr 1fr auto;
+            gap: 6px;
+            align-items: center;
+            padding: 4px;
+            border-bottom: 1px dashed #888;
+        }
+
+        /* Tax table */
+        table.tax-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+            background: #fff;
+        }
+        table.tax-table th, table.tax-table td {
+            border: 1px solid #999;
+            padding: 2px 4px;
+            text-align: center;
+        }
+        table.tax-table input { width: 60px; font-size: 11px; text-align: right; padding: 1px; }
+
+        /* AI drawer */
+        .ai-drawer {
+            position: fixed;
+            top: 0; right: 0; bottom: 0;
+            width: 440px;
+            max-width: 100%;
+            background: #c0c0c0;
+            box-shadow: -4px 0 10px rgba(0,0,0,0.3);
+            transform: translateX(100%);
+            transition: transform 0.25s ease;
+            z-index: 900;
+            display: flex;
+            flex-direction: column;
+        }
+        .ai-drawer.open { transform: translateX(0); }
+        .ai-drawer .window-body {
+            overflow-y: auto;
+            flex: 1;
+            padding: 10px;
+        }
+        .ai-section { padding: 6px; margin-bottom: 8px; background: #fff; border: 1px inset #dfdfdf; }
+        .ai-section h4 { margin: 0 0 4px 0; font-size: 13px; color: #003366; }
+        .ai-section p { margin: 2px 0; font-size: 12px; white-space: pre-wrap; }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.4);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal.open { display: flex; }
+        .modal .window { width: 400px; max-width: 95%; }
+
+        .loading-mask {
+            position: absolute;
+            inset: 0;
+            background: rgba(192,192,192,0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #000;
+            z-index: 10;
+        }
+        .loading-mask.show { display: flex; }
+        .rel { position: relative; }
+
+        #langToggle {
+            position: fixed;
+            bottom: calc(10px + env(safe-area-inset-bottom));
+            right: 10px;
+            z-index: 9999;
+            padding: 2px 8px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        @media (max-width: 800px) {
+            body { padding: 8px; }
+            .kpi-grid { grid-template-columns: 1fr 1fr; }
+            .ai-drawer { width: 95%; }
+        }
+    </style>
+</head>
+
+<body>
+
+<button id="langToggle" onclick="i18n.toggleLang()">EN</button>
+
+<div class="page">
+
+    <!-- ==================== TOP BAR ==================== -->
+    <div class="window">
+        <div class="title-bar">
+            <div class="title-bar-text" data-i18n="financeWindowTitle">Panshaker 美国分公司 财务测算</div>
+            <div class="title-bar-controls">
+                <button aria-label="Close" onclick="window.location.href='stats.html'"></button>
+            </div>
+        </div>
+        <div class="window-body">
+            <div class="topbar">
+                <label data-i18n="scenarioLabel">场景:</label>
+                <select id="scenarioSelect" style="min-width:200px;" onchange="onScenarioChange()"></select>
+                <button onclick="saveScenario()" data-i18n="saveBtn">保存</button>
+                <button onclick="saveAsScenario()" data-i18n="saveAsBtn">另存为</button>
+                <button onclick="deleteScenario()" data-i18n="deleteBtn">删除</button>
+                <div class="spacer"></div>
+                <label data-i18n="cashflowWindowLabel">现金流窗口:</label>
+                <select id="cashflowMonths" onchange="onCashflowMonthsChange()">
+                    <option value="12">12 月</option>
+                    <option value="24" selected>24 月</option>
+                    <option value="36">36 月</option>
+                    <option value="60">60 月</option>
+                </select>
+                <button onclick="refreshFx()" id="fxBtn" data-i18n="refreshFxBtn">刷新汇率</button>
+                <span id="fxInfo" style="font-size:11px;color:#003366;"></span>
+                <button onclick="openAiDrawer()" data-i18n="aiBtn">AI 建议售价</button>
+                <button onclick="exportExcel()" data-i18n="exportFinanceBtn">导出 Excel</button>
+                <button onclick="logout()" data-i18n="logout">注销退出</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== DASHBOARD ==================== -->
+    <div class="window rel">
+        <div class="title-bar"><div class="title-bar-text" data-i18n="dashboardTitle">Dashboard - 关键杠杆与预警</div></div>
+        <div class="window-body">
+            <div class="row">
+                <!-- Key inputs -->
+                <div class="col" style="flex:2;">
+                    <div class="kpi-grid">
+                        <div class="field">
+                            <label data-i18n="kpiBuyoutPrice">买断售价</label>
+                            <div class="money-input">
+                                <input type="number" step="1" data-bind="buyout.priceUSD" data-currency="USD">
+                                <button class="currency-toggle" onclick="toggleCurrency(this)">$</button>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label data-i18n="kpiLeaseFirstPay">租赁首期</label>
+                            <div class="money-input">
+                                <input type="number" step="1" data-bind="lease.firstPayUSD" data-currency="USD">
+                                <button class="currency-toggle" onclick="toggleCurrency(this)">$</button>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label data-i18n="kpiLeaseRent">月租金</label>
+                            <div class="money-input">
+                                <input type="number" step="1" data-bind="lease.monthlyRentUSD" data-currency="USD">
+                                <button class="currency-toggle" onclick="toggleCurrency(this)">$</button>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label data-i18n="kpiLeaseFirstPayMonths">首期月数（租 N 月）</label>
+                            <input type="number" step="1" min="0" data-bind="lease.firstPayMonths">
+                        </div>
+                        <div class="field">
+                            <label data-i18n="kpiLeaseDepositMonths">押金月数（押 M 月）</label>
+                            <input type="number" step="1" min="0" data-bind="lease.depositMonths">
+                        </div>
+                        <div class="field">
+                            <label data-i18n="kpiLeaseMinMonths">最低租期（月）</label>
+                            <input type="number" step="1" min="1" data-bind="lease.minMonths">
+                        </div>
+                        <div class="field">
+                            <label data-i18n="kpiLeaseETF">提前退租费</label>
+                            <div class="money-input">
+                                <input type="number" step="1" data-bind="lease.earlyTerminationFeeUSD" data-currency="USD">
+                                <button class="currency-toggle" onclick="toggleCurrency(this)">$</button>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label data-i18n="kpiLeaseRatio">租售比 (0–1)</label>
+                            <input type="number" step="0.05" min="0" max="1" data-bind="assumptions.leaseRatio">
+                        </div>
+                        <div class="field">
+                            <label data-i18n="kpiUnitCost">单台到岸前成本</label>
+                            <div class="money-input">
+                                <input type="number" step="1" data-bind="product.unitCostUSD" data-currency="USD">
+                                <button class="currency-toggle" onclick="toggleCurrency(this)">$</button>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label data-i18n="kpiConversion">线索成交率</label>
+                            <input type="number" step="0.01" min="0" max="1" data-bind="assumptions.conversionRate">
+                        </div>
+                        <div class="field">
+                            <label data-i18n="kpiTotalLeads">总线索数/期</label>
+                            <input type="number" step="1" data-bind="assumptions.totalLeads">
+                        </div>
+                        <div class="field">
+                            <label data-i18n="kpiUsefulLife">设备使用寿命（月）</label>
+                            <input type="number" step="1" min="1" data-bind="product.usefulLifeMonths">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Alert lights -->
+                <div class="col" style="flex:1;min-width:300px;">
+                    <div class="alerts">
+                        <div class="alert-light">
+                            <span class="light-dot light-gray" id="lightBuyout"></span>
+                            <div>
+                                <div class="alert-title" data-i18n="alertBuyout">买断盈利</div>
+                                <div class="alert-sub" id="lightBuyoutSub">--</div>
+                            </div>
+                        </div>
+                        <div class="alert-light">
+                            <span class="light-dot light-gray" id="lightLease"></span>
+                            <div>
+                                <div class="alert-title" data-i18n="alertLease">租赁 LTV</div>
+                                <div class="alert-sub" id="lightLeaseSub">--</div>
+                            </div>
+                        </div>
+                        <div class="alert-light">
+                            <span class="light-dot light-gray" id="lightCash"></span>
+                            <div>
+                                <div class="alert-title" data-i18n="alertCashflow">月度现金流</div>
+                                <div class="alert-sub" id="lightCashSub">--</div>
+                            </div>
+                        </div>
+                    </div>
+                    <fieldset style="margin-top:8px;">
+                        <legend data-i18n="kpiSummary">关键数字</legend>
+                        <div id="kpiTable" style="font-size:12px;"></div>
+                    </fieldset>
+                </div>
+            </div>
+            <div class="chart-box">
+                <canvas id="cashflowChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== TABS ==================== -->
+    <div>
+        <div class="tabs">
+            <div class="tab-btn active" data-tab="buyout" onclick="showTab('buyout')" data-i18n="tabBuyout">买断明细</div>
+            <div class="tab-btn" data-tab="lease" onclick="showTab('lease')" data-i18n="tabLease">租赁明细</div>
+            <div class="tab-btn" data-tab="opex" onclick="showTab('opex')" data-i18n="tabOpex">月度费用预算</div>
+            <div class="tab-btn" data-tab="custom" onclick="showTab('custom')" data-i18n="tabCustom">自定义成本项</div>
+            <div class="tab-btn" data-tab="settings" onclick="showTab('settings')" data-i18n="tabSettings">场景与设置</div>
+        </div>
+        <div class="window">
+            <div class="window-body" style="padding:0;">
+
+                <!-- ── Tab: 买断明细 ── -->
+                <div class="tab-panel active" id="tabPanel-buyout">
+                    <h4 style="margin:6px 0;" data-i18n="buyoutDetailTitle">买断利润模型（根据 Excel 原表重构，输入即时联动）</h4>
+                    <table class="detail" id="buyoutTable"></table>
+                </div>
+
+                <!-- ── Tab: 租赁明细 ── -->
+                <div class="tab-panel" id="tabPanel-lease">
+                    <h4 style="margin:6px 0;" data-i18n="leaseDetailTitle">租赁利润模型（含押金/最低租期/提前退租/按月现金流）</h4>
+                    <table class="detail" id="leaseTable"></table>
+                    <h4 style="margin:14px 0 6px;" data-i18n="leaseMonthlyTitle">按月现金流（前 24 月）</h4>
+                    <div style="overflow:auto;max-height:380px;">
+                        <table class="detail" id="leaseMonthlyTable"></table>
+                    </div>
+                </div>
+
+                <!-- ── Tab: 月度费用预算 ── -->
+                <div class="tab-panel" id="tabPanel-opex">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <h4 style="margin:6px 0;" data-i18n="opexTitle">月度固定费用预算（USD，可直接修改）</h4>
+                        <button onclick="addOpexCategory()" data-i18n="addOpexBtn">+ 添加科目</button>
+                    </div>
+                    <div style="overflow:auto;">
+                        <table class="opex" id="opexTable"></table>
+                    </div>
+                </div>
+
+                <!-- ── Tab: 自定义成本项 ── -->
+                <div class="tab-panel" id="tabPanel-custom">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <h4 style="margin:6px 0;" data-i18n="customTitle">自定义成本项（未来扩展）</h4>
+                        <button onclick="addCustomCost()" data-i18n="addCustomBtn">+ 添加成本项</button>
+                    </div>
+                    <div style="padding:4px 0;font-size:12px;color:#333;" data-i18n="customHelp">单位 per_unit=每台一次性 / per_customer=每客户一次性 / per_month=每月固定 / once=一次性</div>
+                    <div class="cost-item-row" style="font-weight:bold;background:#dfdfdf;">
+                        <span data-i18n="customColName">名称</span>
+                        <span data-i18n="customColUnit">单位</span>
+                        <span data-i18n="customColValue">金额 (USD)</span>
+                        <span data-i18n="customColApplies">适用于</span>
+                        <span data-i18n="customColOps">操作</span>
+                    </div>
+                    <div id="customList"></div>
+                </div>
+
+                <!-- ── Tab: 场景与设置 ── -->
+                <div class="tab-panel" id="tabPanel-settings">
+                    <div class="row">
+                        <fieldset class="col">
+                            <legend data-i18n="metaTitle">元信息</legend>
+                            <div class="field-row"><label style="width:120px;" data-i18n="metaCompanyState">公司州</label>
+                                <select data-bind="meta.companyState" id="companyStateSel"></select></div>
+                            <div class="field-row"><label style="width:120px;" data-i18n="metaDestState">目的州</label>
+                                <select data-bind="meta.destinationState" id="destStateSel"></select></div>
+                            <div class="field-row"><label style="width:120px;" data-i18n="metaFxRate">汇率 USD→CNY</label>
+                                <input type="number" step="0.001" data-bind="meta.fxRate"></div>
+                            <div class="field-row"><label style="width:120px;" data-i18n="metaNotes">备注</label>
+                                <input type="text" data-bind="meta.notes" style="flex:1;"></div>
+                        </fieldset>
+                        <fieldset class="col">
+                            <legend data-i18n="taxTitle">税率（美国）</legend>
+                            <div class="field-row"><label style="width:160px;" data-i18n="taxFederal">联邦企业所得税</label>
+                                <input type="number" step="0.001" data-bind="tax.federalCorpPct"></div>
+                            <div class="field-row"><label style="width:160px;" data-i18n="taxStateCorp">州企业所得税</label>
+                                <input type="number" step="0.001" data-bind="tax.stateCorpPct"></div>
+                            <div class="field-row"><label style="width:160px;" data-i18n="taxFranchise">Franchise Tax (年/USD)</label>
+                                <input type="number" step="1" data-bind="tax.franchiseTaxAnnualUSD"></div>
+                            <div class="field-row"><label style="width:160px;" data-i18n="taxFICA">FICA 雇主端</label>
+                                <input type="number" step="0.001" data-bind="tax.payroll.ficaEmployerPct"></div>
+                            <div class="field-row"><label style="width:160px;" data-i18n="taxFUTA">FUTA</label>
+                                <input type="number" step="0.001" data-bind="tax.payroll.futaPct"></div>
+                            <div class="field-row"><label style="width:160px;" data-i18n="taxSUTA">SUTA</label>
+                                <input type="number" step="0.001" data-bind="tax.payroll.sutaPct"></div>
+                            <div class="field-row"><label style="width:160px;" data-i18n="taxBenefits">福利占工资比例</label>
+                                <input type="number" step="0.01" data-bind="tax.payroll.benefitsPctOfSalary"></div>
+                        </fieldset>
+                    </div>
+                    <div class="row">
+                        <fieldset class="col">
+                            <legend data-i18n="productTitle">产品与到岸成本</legend>
+                            <div class="field-row"><label style="width:180px;" data-i18n="productName">产品名</label>
+                                <input type="text" data-bind="product.name" style="flex:1;"></div>
+                            <div class="field-row"><label style="width:180px;" data-i18n="productUnitCost">单台基础成本 (USD)</label>
+                                <input type="number" step="1" data-bind="product.unitCostUSD"></div>
+                            <div class="field-row"><label style="width:180px;" data-i18n="productOcean">海运 USD/台</label>
+                                <input type="number" step="1" data-bind="product.landed.oceanFreightUSD"></div>
+                            <div class="field-row"><label style="width:180px;" data-i18n="productDuty">进口关税率</label>
+                                <input type="number" step="0.001" data-bind="product.landed.importDutyPct"></div>
+                            <div class="field-row"><label style="width:180px;" data-i18n="productPort">港口杂费 USD/台</label>
+                                <input type="number" step="1" data-bind="product.landed.portFeesUSD"></div>
+                            <div class="field-row"><label style="width:180px;" data-i18n="productInland">美国内陆 USD/台</label>
+                                <input type="number" step="1" data-bind="product.landed.usInlandFreightUSD"></div>
+                            <div class="field-row"><label style="width:180px;" data-i18n="productWarehouse">仓储 USD/月</label>
+                                <input type="number" step="1" data-bind="product.landed.warehouseMonthlyUSD"></div>
+                            <div class="field-row"><label style="width:180px;" data-i18n="productInstall">上门培训 USD/客户</label>
+                                <input type="number" step="1" data-bind="product.installTrainingUSD"></div>
+                            <div class="field-row"><label style="width:180px;" data-i18n="productWarranty">质保 USD/台</label>
+                                <input type="number" step="1" data-bind="product.warrantyUSD"></div>
+                            <div class="field-row"><label style="width:180px;" data-i18n="productShipping">客户运输 USD/台</label>
+                                <input type="number" step="1" data-bind="product.shippingToCustomerUSD"></div>
+                            <div class="field-row"><label style="width:180px;" data-i18n="productAds">广告 USD/台</label>
+                                <input type="number" step="1" data-bind="product.advertisingUSD"></div>
+                        </fieldset>
+                        <fieldset class="col">
+                            <legend data-i18n="commissionTitle">中美跨境销售提成（US-CN TOB）</legend>
+                            <div style="font-size:11px;color:#333;padding:2px 0 6px;" data-i18n="commissionHelp">
+                                行业惯例：总提成池约 5%，按 40% 中国引流方 / 60% 美国成交方分成；中国引流占比指有多少美国成交的客户来自中国团队推荐，默认 30%。
+                            </div>
+                            <div class="field-row"><label style="width:200px;" data-i18n="commissionUs">美国成交方提成率</label>
+                                <input type="number" step="0.001" min="0" data-bind="product.commissions.usSalesPct">
+                                <span style="font-size:11px;color:#666;margin-left:4px;" data-i18n="commissionUsHint">默认 0.03 (3%)</span></div>
+                            <div class="field-row"><label style="width:200px;" data-i18n="commissionCn">中国引流方提成率</label>
+                                <input type="number" step="0.001" min="0" data-bind="product.commissions.chinaReferralPct">
+                                <span style="font-size:11px;color:#666;margin-left:4px;" data-i18n="commissionCnHint">默认 0.02 (2%)</span></div>
+                            <div class="field-row"><label style="width:200px;" data-i18n="commissionAttach">中国引流占比 (attach rate)</label>
+                                <input type="number" step="0.01" min="0" max="1" data-bind="product.commissions.chinaReferralAttachRate">
+                                <span style="font-size:11px;color:#666;margin-left:4px;" data-i18n="commissionAttachHint">默认 0.30</span></div>
+                            <div class="field-row"><label style="width:200px;" data-i18n="commissionOther">其他提成/奖励</label>
+                                <input type="number" step="0.001" min="0" data-bind="product.commissions.otherPct">
+                                <span style="font-size:11px;color:#666;margin-left:4px;" data-i18n="commissionOtherHint">默认 0.01 (1%)</span></div>
+                            <div style="margin-top:8px;padding:4px;background:#ffffc7;font-size:12px;">
+                                <span data-i18n="commissionEffective">有效综合提成率：</span>
+                                <b id="commissionEffectiveDisplay">-</b>
+                                <span style="color:#666;margin-left:6px;" data-i18n="commissionFormula">
+                                    = US + CN × Attach + Other
+                                </span>
+                            </div>
+                        </fieldset>
+                        <fieldset class="col">
+                            <legend data-i18n="salesTaxTitle">美国各州销售税（可编辑，保存覆盖默认）</legend>
+                            <div style="overflow:auto;max-height:420px;">
+                                <table class="tax-table" id="stateTaxTable"></table>
+                            </div>
+                            <div style="margin-top:6px;text-align:right;">
+                                <button onclick="saveTaxTable()" data-i18n="saveTaxBtn">保存税表</button>
+                                <button onclick="resetTaxTable()" data-i18n="resetTaxBtn">重置默认</button>
+                            </div>
+                        </fieldset>
+                    </div>
+                    <fieldset>
+                        <legend data-i18n="forecastTitle">月度销量预测（单位：台）</legend>
+                        <div style="overflow:auto;max-height:280px;">
+                            <table class="opex" id="forecastTable"></table>
+                        </div>
+                    </fieldset>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- ==================== AI DRAWER ==================== -->
+<div class="ai-drawer" id="aiDrawer">
+    <div class="window" style="flex:1;display:flex;flex-direction:column;">
+        <div class="title-bar">
+            <div class="title-bar-text" data-i18n="aiTitle">AI 建议售价 (GLM-4.6V)</div>
+            <div class="title-bar-controls">
+                <button aria-label="Close" onclick="closeAiDrawer()"></button>
+            </div>
+        </div>
+        <div class="window-body" id="aiBody">
+            <div style="padding:8px;">
+                <p data-i18n="aiIntro">基于当前完整场景（成本/价格/税率/租赁政策/中美跨境提成/销量预测）与竞品信息，调用智谱 GLM-4.6V 生成推荐定价。</p>
+                <button onclick="callAi()" id="aiCallBtn" style="width:100%;padding:6px;" data-i18n="aiCallBtn">调用 AI 生成建议</button>
+                <div id="aiStatus" style="margin-top:8px;font-size:12px;color:#003366;"></div>
+            </div>
+            <div id="aiResult"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== Save-As modal ==================== -->
+<div class="modal" id="saveAsModal">
+    <div class="window">
+        <div class="title-bar">
+            <div class="title-bar-text" data-i18n="saveAsTitle">另存为新场景</div>
+            <div class="title-bar-controls"><button aria-label="Close" onclick="closeSaveAs()"></button></div>
+        </div>
+        <div class="window-body">
+            <div class="field-row" style="margin-bottom:10px;">
+                <label style="width:80px;" data-i18n="saveAsNameLabel">场景名:</label>
+                <input type="text" id="saveAsName" style="flex:1;">
+            </div>
+            <div style="text-align:right;">
+                <button onclick="doSaveAs()" data-i18n="saveBtn">保存</button>
+                <button onclick="closeSaveAs()" data-i18n="cancelBtn">取消</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="i18n.js"></script>
+<script src="us-tax-defaults.js"></script>
+<script src="finance.js"></script>
+<script>
+    // ── Auth check ──
+    if (localStorage.getItem('ps_role') !== 'admin') {
+        window.location.href = 'login.html';
+    }
+    i18n.applyLang();
+
+    // ── App State ──
+    let scenarios = [];           // list from server
+    let currentId = null;
+    let scenario = null;          // active scenario object
+    let taxTable = { salesTax: window.USTaxDefaults.salesTax, corpTax: window.USTaxDefaults.corpTax };
+    let lastComputed = null;
+    let lastAiSuggestion = null;
+    let chart = null;
+
+    // ── Utility: deep get/set by "a.b.c" path ──
+    function getPath(obj, path) {
+        return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
+    }
+    function setPath(obj, path, val) {
+        const parts = path.split('.');
+        let cur = obj;
+        for (let i = 0; i < parts.length - 1; i++) {
+            if (cur[parts[i]] == null) cur[parts[i]] = {};
+            cur = cur[parts[i]];
+        }
+        cur[parts[parts.length - 1]] = val;
+    }
+
+    // ── Init ──
+    async function init() {
+        populateStateSelects();
+        await Promise.all([loadScenarios(), loadTaxTable()]);
+        renderStateTaxTable();
+        await refreshFx(true);
+    }
+
+    function populateStateSelects() {
+        const names = window.USTaxDefaults.stateNames;
+        const opts = Object.keys(names).sort().map(code =>
+            `<option value="${code}">${code} - ${names[code]}</option>`).join('');
+        document.getElementById('companyStateSel').innerHTML = opts;
+        document.getElementById('destStateSel').innerHTML = opts;
+    }
+
+    async function loadScenarios() {
+        const r = await fetch('/api/finance/scenarios');
+        scenarios = await r.json();
+        const sel = document.getElementById('scenarioSelect');
+        sel.innerHTML = scenarios.map(s => `<option value="${s.Id}">${s.IsDefault ? '[默认] ' : ''}${s.Name}</option>`).join('');
+        if (scenarios.length > 0) {
+            currentId = scenarios[0].Id;
+            sel.value = currentId;
+            await loadScenario(currentId);
+        }
+    }
+
+    async function loadScenario(id) {
+        const r = await fetch('/api/finance/scenarios/' + id);
+        if (!r.ok) return alert('加载场景失败');
+        const full = await r.json();
+        currentId = full.Id;
+        scenario = full.Data;
+        migrateScenario(scenario);
+        bindAll();
+        recomputeAndRender();
+    }
+
+    // Upgrade legacy commission schema { salesPct, otherPct } ->
+    // { usSalesPct, chinaReferralPct, chinaReferralAttachRate, otherPct }
+    function migrateScenario(sc) {
+        if (!sc.product) sc.product = {};
+        if (!sc.product.commissions) sc.product.commissions = {};
+        const c = sc.product.commissions;
+        if (c.usSalesPct == null && c.salesPct != null) {
+            c.usSalesPct = Number(c.salesPct) || 0;
+        }
+        if (c.chinaReferralPct == null) c.chinaReferralPct = 0.02;
+        if (c.chinaReferralAttachRate == null) c.chinaReferralAttachRate = 0.30;
+        if (c.otherPct == null) c.otherPct = 0;
+        delete c.salesPct;
+    }
+
+    async function onScenarioChange() {
+        const id = Number(document.getElementById('scenarioSelect').value);
+        if (id && id !== currentId) await loadScenario(id);
+    }
+
+    // ── Bind all [data-bind] inputs to the scenario object (2-way) ──
+    function bindAll() {
+        document.querySelectorAll('[data-bind]').forEach(el => {
+            const path = el.getAttribute('data-bind');
+            const v = getPath(scenario, path);
+            if (el.tagName === 'SELECT') el.value = v ?? '';
+            else if (el.type === 'number') el.value = v ?? 0;
+            else el.value = v ?? '';
+
+            // Ensure currency-toggle-driven inputs display in their current currency
+            if (el.dataset.currency === 'CNY') {
+                const usd = Number(v) || 0;
+                el.value = PsFinance.r2(PsFinance.toCNY(usd, scenario.meta?.fxRate || 7.2));
+            }
+
+            el.oninput = (ev) => {
+                let raw = ev.target.value;
+                if (el.tagName === 'SELECT') setPath(scenario, path, raw);
+                else if (el.type === 'number') {
+                    const n = Number(raw);
+                    const final = (el.dataset.currency === 'CNY')
+                        ? PsFinance.toUSD(n, 'CNY', scenario.meta?.fxRate || 7.2)
+                        : n;
+                    setPath(scenario, path, final);
+                } else {
+                    setPath(scenario, path, raw);
+                }
+                recomputeAndRender();
+            };
+        });
+
+        // Render custom costs, opex, forecast which are not simple bound inputs
+        renderOpex();
+        renderCustomCosts();
+        renderForecast();
+    }
+
+    // ── Currency toggle for a single field ──
+    function toggleCurrency(btn) {
+        const input = btn.parentElement.querySelector('input[type=number]');
+        const curCur = input.dataset.currency;
+        const newCur = curCur === 'USD' ? 'CNY' : 'USD';
+        const fx = Number(scenario.meta?.fxRate) || 7.2;
+        const curVal = Number(input.value) || 0;
+        const usd = curCur === 'USD' ? curVal : curVal / fx;
+        input.dataset.currency = newCur;
+        input.value = newCur === 'USD' ? PsFinance.r2(usd) : PsFinance.r2(usd * fx);
+        btn.textContent = newCur === 'USD' ? '$' : '¥';
+    }
+
+    // ── Opex table render ──
+    function renderOpex() {
+        const t = document.getElementById('opexTable');
+        const cats = scenario.opex?.categories || [];
+        let html = '<tr><th style="text-align:left;min-width:180px;" data-i18n="opexSubject">科目</th>';
+        for (let i = 1; i <= 12; i++) html += `<th>${i}月</th>`;
+        html += '<th data-i18n="opexTotal">合计</th><th data-i18n="opexOps">操作</th></tr>';
+
+        const colSums = new Array(12).fill(0);
+        cats.forEach((cat, idx) => {
+            const months = cat.months || new Array(12).fill(0);
+            let rowSum = 0;
+            html += `<tr><td class="name">${escapeHtml(cat.name)}</td>`;
+            for (let i = 0; i < 12; i++) {
+                const v = Number(months[i]) || 0;
+                rowSum += v;
+                colSums[i] += v;
+                html += `<td><input type="number" step="1" value="${v}" onchange="updateOpex(${idx},${i},this.value)"></td>`;
+            }
+            html += `<td class="num"><b>${PsFinance.fmtUSD(rowSum)}</b></td>`;
+            html += `<td><button onclick="removeOpex(${idx})" data-i18n="removeBtn">删除</button></td></tr>`;
+        });
+        html += `<tr class="sum-row"><td class="name" data-i18n="opexSumLabel">月度小计</td>`;
+        let grand = 0;
+        for (let i = 0; i < 12; i++) { grand += colSums[i]; html += `<td>${PsFinance.fmtUSD(colSums[i])}</td>`; }
+        html += `<td>${PsFinance.fmtUSD(grand)}</td><td></td></tr>`;
+        t.innerHTML = html;
+    }
+
+    window.updateOpex = function (idx, monthIdx, val) {
+        const v = Number(val) || 0;
+        scenario.opex.categories[idx].months[monthIdx] = v;
+        recomputeAndRender();
+    };
+    window.removeOpex = function (idx) {
+        if (!confirm('确定删除该科目？')) return;
+        scenario.opex.categories.splice(idx, 1);
+        renderOpex();
+        recomputeAndRender();
+    };
+    window.addOpexCategory = function () {
+        const name = prompt('新科目名（USD 月度）？');
+        if (!name) return;
+        scenario.opex.categories.push({ id: 'custom_' + Date.now(), name, months: new Array(12).fill(0) });
+        renderOpex();
+        recomputeAndRender();
+    };
+
+    // ── Custom cost items ──
+    function renderCustomCosts() {
+        const list = document.getElementById('customList');
+        const items = scenario.customCosts || [];
+        if (items.length === 0) {
+            list.innerHTML = '<div style="padding:12px;color:#666;font-style:italic;" data-i18n="customEmpty">暂无自定义成本项。点击「+ 添加成本项」。</div>';
+            i18n.applyLang();
+            return;
+        }
+        list.innerHTML = items.map((c, i) => `
+            <div class="cost-item-row">
+                <input type="text" value="${escapeAttr(c.name || '')}" onchange="updateCustom(${i},'name',this.value)">
+                <select onchange="updateCustom(${i},'unit',this.value)">
+                    <option value="per_unit" ${c.unit==='per_unit'?'selected':''}>per_unit</option>
+                    <option value="per_customer" ${c.unit==='per_customer'?'selected':''}>per_customer</option>
+                    <option value="per_month" ${c.unit==='per_month'?'selected':''}>per_month</option>
+                    <option value="once" ${c.unit==='once'?'selected':''}>once</option>
+                </select>
+                <input type="number" step="0.01" value="${Number(c.valueUSD)||0}" onchange="updateCustom(${i},'valueUSD',this.value)">
+                <select onchange="updateCustom(${i},'appliesTo',this.value)">
+                    <option value="both" ${c.appliesTo==='both'?'selected':''}>both</option>
+                    <option value="buyout" ${c.appliesTo==='buyout'?'selected':''}>buyout</option>
+                    <option value="lease" ${c.appliesTo==='lease'?'selected':''}>lease</option>
+                </select>
+                <button onclick="removeCustom(${i})" data-i18n="removeBtn">删除</button>
+            </div>
+        `).join('');
+    }
+    window.updateCustom = function (i, key, val) {
+        if (key === 'valueUSD') val = Number(val) || 0;
+        scenario.customCosts[i][key] = val;
+        recomputeAndRender();
+    };
+    window.removeCustom = function (i) {
+        scenario.customCosts.splice(i, 1);
+        renderCustomCosts();
+        recomputeAndRender();
+    };
+    window.addCustomCost = function () {
+        if (!scenario.customCosts) scenario.customCosts = [];
+        scenario.customCosts.push({ id: 'cc_' + Date.now(), name: '新成本项', unit: 'per_unit', valueUSD: 0, appliesTo: 'both' });
+        renderCustomCosts();
+    };
+
+    // ── Forecast ──
+    function renderForecast() {
+        const N = scenario.meta?.cashflowMonths || 24;
+        const arr = scenario.forecast?.monthlyUnits || [];
+        while (arr.length < N) arr.push(0);
+        let html = '<tr>';
+        for (let i = 1; i <= N; i++) html += `<th>${i}月</th>`;
+        html += '</tr><tr>';
+        for (let i = 0; i < N; i++) {
+            html += `<td><input type="number" step="1" value="${arr[i]||0}" onchange="updateForecast(${i},this.value)"></td>`;
+        }
+        html += '</tr>';
+        document.getElementById('forecastTable').innerHTML = html;
+    }
+    window.updateForecast = function (i, v) {
+        scenario.forecast.monthlyUnits[i] = Number(v) || 0;
+        recomputeAndRender();
+    };
+
+    // ── State tax table ──
+    function renderStateTaxTable() {
+        const names = window.USTaxDefaults.stateNames;
+        const sales = taxTable.salesTax;
+        const corp = taxTable.corpTax;
+        const codes = Object.keys(names).sort();
+        let html = '<tr><th>州</th><th>名称</th><th>销售税</th><th>州企业所得税</th></tr>';
+        codes.forEach(code => {
+            html += `<tr>
+                <td>${code}</td>
+                <td style="text-align:left;">${names[code]}</td>
+                <td><input type="number" step="0.0001" value="${sales[code]||0}" onchange="updateTax('salesTax','${code}',this.value)"></td>
+                <td><input type="number" step="0.0001" value="${corp[code]||0}" onchange="updateTax('corpTax','${code}',this.value)"></td>
+            </tr>`;
+        });
+        document.getElementById('stateTaxTable').innerHTML = html;
+    }
+    window.updateTax = function (which, code, val) {
+        taxTable[which][code] = Number(val) || 0;
+    };
+
+    async function loadTaxTable() {
+        try {
+            const r = await fetch('/api/finance/tax-table');
+            if (r.ok) taxTable = await r.json();
+        } catch (_) {}
+    }
+
+    async function saveTaxTable() {
+        try {
+            const r = await fetch('/api/finance/tax-table', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(taxTable)
+            });
+            if (r.ok) alert('税表已保存'); else alert('保存失败');
+        } catch (e) { alert('网络错误'); }
+    }
+    async function resetTaxTable() {
+        if (!confirm('重置为内置默认税表？')) return;
+        taxTable = { salesTax: { ...window.USTaxDefaults.salesTax }, corpTax: { ...window.USTaxDefaults.corpTax } };
+        renderStateTaxTable();
+    }
+
+    // ── Compute + render everything ──
+    function recomputeAndRender() {
+        if (!scenario) return;
+        // Keep cashflow months synced to selector
+        const N = Number(document.getElementById('cashflowMonths').value) || 24;
+        scenario.meta.cashflowMonths = N;
+        const res = PsFinance.computeAll(scenario);
+        lastComputed = res;
+        renderKpiTable(res.kpi);
+        renderAlerts(res);
+        renderBuyoutTable(res.buyoutRows);
+        renderLeaseTable(res.leaseRows, res);
+        renderChart(res.cashflow);
+        updateCommissionDisplay();
+    }
+
+    function updateCommissionDisplay() {
+        const el = document.getElementById('commissionEffectiveDisplay');
+        if (!el) return;
+        const cb = PsFinance.commissionBreakdown(scenario);
+        el.textContent = (cb.total * 100).toFixed(2) + '%  ('
+            + 'US ' + (cb.us * 100).toFixed(2) + '% + CN ' + (cb.cnRef * 100).toFixed(2) + '% + 其他 ' + (cb.other * 100).toFixed(2) + '%)';
+    }
+
+    function renderKpiTable(k) {
+        const rows = [
+            ['单台买断毛利', PsFinance.fmtUSD(k.buyoutGrossPerUnit) + ' (' + (k.buyoutGrossPct*100).toFixed(1) + '%)'],
+            ['买断年度盈亏平衡/月', k.buyoutBreakevenUnits + ' 台'],
+            ['单台租赁 LTV 净收益', PsFinance.fmtUSD(k.leaseLtvNet)],
+            ['租赁回本月数', k.leasePaybackMonths + ' 月'],
+            ['月均固定成本', PsFinance.fmtUSD(k.monthlyFixedCost)],
+            ['首次现金流转负月', k.firstNegativeMonth ? '第 ' + k.firstNegativeMonth + ' 月' : '无'],
+            ['最大单月亏损', PsFinance.fmtUSD(k.maxNegativeCashflow)],
+            ['累计最低现金', PsFinance.fmtUSD(k.minCumulative)]
+        ];
+        document.getElementById('kpiTable').innerHTML =
+            rows.map(r => `<div style="display:flex;justify-content:space-between;border-bottom:1px dashed #888;padding:1px 0;"><span>${r[0]}</span><b>${r[1]}</b></div>`).join('');
+    }
+
+    function renderAlerts(res) {
+        const setLight = (id, subId, ok, txt) => {
+            const dot = document.getElementById(id);
+            dot.className = 'light-dot ' + (ok ? 'light-green' : 'light-red');
+            document.getElementById(subId).textContent = txt;
+        };
+        setLight('lightBuyout', 'lightBuyoutSub',
+            res.buyout.grossPerUnit > 0,
+            '单台毛利 ' + PsFinance.fmtUSD(res.buyout.grossPerUnit));
+        setLight('lightLease', 'lightLeaseSub',
+            res.lease.ltvNet > 0,
+            '最低租期 LTV 净 ' + PsFinance.fmtUSD(res.lease.ltvNet));
+        const firstNeg = res.cashflow.find(r => r.net < 0);
+        setLight('lightCash', 'lightCashSub',
+            !firstNeg,
+            firstNeg ? '第 ' + firstNeg.m + ' 月现金流 ' + PsFinance.fmtUSD(firstNeg.net) : '无负值');
+    }
+
+    function renderBuyoutTable(rows) {
+        let html = '<tr><th data-i18n="thGroup">类别</th><th data-i18n="thItem">项目</th><th style="text-align:right;" data-i18n="thValue">数值</th></tr>';
+        let lastGroup = '';
+        rows.forEach(r => {
+            const gcell = r.group !== lastGroup ? `<td class="group-cell" rowspan="${countGroup(rows, r.group, r.group !== lastGroup)}">${r.group}</td>` : '';
+            if (r.group !== lastGroup) { lastGroup = r.group; }
+            html += `<tr${r.isTotal?' class="total-row"':''}>${gcell}<td>${escapeHtml(r.name)}</td><td class="num">${fmtVal(r)}</td></tr>`;
+        });
+        document.getElementById('buyoutTable').innerHTML = html;
+    }
+
+    function renderLeaseTable(rows, res) {
+        let html = '<tr><th>类别</th><th>项目</th><th style="text-align:right;">数值</th></tr>';
+        let lastGroup = '';
+        rows.forEach(r => {
+            const gcell = r.group !== lastGroup ? `<td class="group-cell" rowspan="${countGroup(rows, r.group, r.group !== lastGroup)}">${r.group}</td>` : '';
+            if (r.group !== lastGroup) lastGroup = r.group;
+            html += `<tr${r.isTotal?' class="total-row"':''}>${gcell}<td>${escapeHtml(r.name)}</td><td class="num">${fmtVal(r)}</td></tr>`;
+        });
+        document.getElementById('leaseTable').innerHTML = html;
+
+        // Monthly breakdown (first min(24, N) months)
+        const N = Math.min(res.cashflow.length, 36);
+        let mh = '<tr><th>月</th><th>新增买断</th><th>新增租赁</th><th>买断收入</th><th>租赁收入</th><th>变动成本</th><th>固定成本</th><th>折旧(非现金)</th><th>税</th><th>净现金流</th><th>累计</th></tr>';
+        const leaseRatio = Number(scenario.assumptions?.leaseRatio) || 0;
+        for (let i = 0; i < N; i++) {
+            const m = res.cashflow[i];
+            const units = m.units || 0;
+            const bu = units * (1 - leaseRatio);
+            const lu = units * leaseRatio;
+            const isNeg = m.net < 0;
+            mh += `<tr${isNeg?' class="total-row" style="background:#ffd0d0;"':''}>
+                <td>${m.m}</td>
+                <td class="num">${bu.toFixed(1)}</td>
+                <td class="num">${lu.toFixed(1)}</td>
+                <td class="num">${PsFinance.fmtUSD(m.bRev)}</td>
+                <td class="num">${PsFinance.fmtUSD(m.lRev)}</td>
+                <td class="num">${PsFinance.fmtUSD(m.varC)}</td>
+                <td class="num">${PsFinance.fmtUSD(m.fixedC)}</td>
+                <td class="num">${PsFinance.fmtUSD(m.dep)}</td>
+                <td class="num">${PsFinance.fmtUSD(m.tax)}</td>
+                <td class="num ${isNeg?'neg':''}">${PsFinance.fmtUSD(m.net)}</td>
+                <td class="num ${m.cum<0?'neg':''}">${PsFinance.fmtUSD(m.cum)}</td>
+            </tr>`;
+        }
+        document.getElementById('leaseMonthlyTable').innerHTML = mh;
+    }
+
+    function countGroup(rows, group, isStart) {
+        if (!isStart) return 1;
+        return rows.filter(r => r.group === group).length;
+    }
+    function fmtVal(r) {
+        if (typeof r.value === 'number') {
+            if (r.isPct) return (r.value*100).toFixed(2) + '%';
+            if (!isFinite(r.value)) return '∞';
+            return PsFinance.fmtUSD(r.value);
+        }
+        return escapeHtml(String(r.value ?? ''));
+    }
+
+    // ── Chart rendering ──
+    function renderChart(cashflow) {
+        const ctx = document.getElementById('cashflowChart').getContext('2d');
+        const labels = cashflow.map(r => 'M' + r.m);
+        const revenue = cashflow.map(r => r.bRev + r.lRev);
+        const cost = cashflow.map(r => -(r.varC + r.fixedC + r.tax));
+        const net = cashflow.map(r => r.net);
+        const cum = cashflow.map(r => r.cum);
+
+        if (chart) chart.destroy();
+        chart = new Chart(ctx, {
+            data: {
+                labels,
+                datasets: [
+                    { type: 'bar', label: '收入', data: revenue, backgroundColor: '#6cc04a', stack: 'x', order: 2 },
+                    { type: 'bar', label: '成本+税', data: cost, backgroundColor: '#e47474', stack: 'x', order: 2 },
+                    { type: 'line', label: '净现金流', data: net, borderColor: '#003366', backgroundColor: 'rgba(0,51,102,0.2)', fill: false, tension: 0.15, order: 1, pointRadius: 2 },
+                    { type: 'line', label: '累计现金流', data: cum, borderColor: '#cc6600', backgroundColor: 'rgba(204,102,0,0.15)', fill: true, tension: 0.15, order: 0, pointRadius: 2 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { stacked: true, ticks: { maxTicksLimit: 20, font: { size: 10 } } },
+                    y: { stacked: false, ticks: { callback: v => '$' + Number(v).toLocaleString() } }
+                },
+                plugins: {
+                    legend: { position: 'bottom', labels: { font: { size: 11 } } },
+                    tooltip: { callbacks: { label: (c) => c.dataset.label + ': $' + Number(c.raw).toLocaleString() } }
+                }
+            }
+        });
+    }
+
+    // ── Tabs ──
+    window.showTab = function (name) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tabPanel-' + name));
+    };
+
+    function onCashflowMonthsChange() {
+        renderForecast();
+        recomputeAndRender();
+    }
+
+    // ── FX refresh ──
+    async function refreshFx(silent) {
+        try {
+            const r = await fetch('/api/finance/fx');
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || 'FX failed');
+            if (scenario) {
+                scenario.meta.fxRate = data.usdToCny || scenario.meta.fxRate;
+                scenario.meta.fxUpdatedAt = data.fetchedAt;
+                bindAll();
+                recomputeAndRender();
+            }
+            document.getElementById('fxInfo').textContent =
+                'USD→CNY ' + (data.usdToCny||0).toFixed(4) + '  @' + new Date(data.fetchedAt).toLocaleString('zh-CN') + (data.cached ? ' (cached)' : '');
+            if (!silent) alert('汇率已更新: 1 USD = ' + (data.usdToCny||0).toFixed(4) + ' CNY');
+        } catch (e) {
+            document.getElementById('fxInfo').textContent = '汇率获取失败';
+            if (!silent) alert('汇率获取失败: ' + (e.message || e));
+        }
+    }
+
+    // ── Scenario save/load ──
+    async function saveScenario() {
+        if (!currentId || !scenario) return;
+        const sel = document.getElementById('scenarioSelect');
+        const name = sel.options[sel.selectedIndex].text.replace(/^\[默认\]\s*/, '');
+        try {
+            const r = await fetch('/api/finance/scenarios/' + currentId, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: scenario })
+            });
+            if (r.ok) alert('已保存场景：' + name);
+            else { const e = await r.json(); alert('保存失败: ' + (e.error||'')); }
+        } catch (e) { alert('网络错误'); }
+    }
+
+    function saveAsScenario() {
+        document.getElementById('saveAsName').value = '';
+        document.getElementById('saveAsModal').classList.add('open');
+    }
+    function closeSaveAs() { document.getElementById('saveAsModal').classList.remove('open'); }
+    async function doSaveAs() {
+        const name = document.getElementById('saveAsName').value.trim();
+        if (!name) return alert('请输入场景名');
+        try {
+            const r = await fetch('/api/finance/scenarios', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, data: scenario })
+            });
+            const j = await r.json();
+            if (!r.ok) return alert('保存失败: ' + (j.error||''));
+            closeSaveAs();
+            await loadScenarios();
+            document.getElementById('scenarioSelect').value = j.id;
+            currentId = j.id;
+        } catch (e) { alert('网络错误'); }
+    }
+
+    async function deleteScenario() {
+        if (!currentId) return;
+        const sel = document.getElementById('scenarioSelect');
+        const name = sel.options[sel.selectedIndex].text;
+        if (!confirm('确定删除场景：' + name + '？')) return;
+        try {
+            const r = await fetch('/api/finance/scenarios/' + currentId, { method: 'DELETE' });
+            const j = await r.json();
+            if (!r.ok) return alert('删除失败: ' + (j.error||''));
+            await loadScenarios();
+        } catch (e) { alert('网络错误'); }
+    }
+
+    // ── Excel export ──
+    async function exportExcel() {
+        if (!scenario || !lastComputed) return;
+        try {
+            const sel = document.getElementById('scenarioSelect');
+            const name = sel.options[sel.selectedIndex].text.replace(/^\[默认\]\s*/, '');
+            const r = await fetch('/api/finance/export', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    scenario,
+                    computed: lastComputed,
+                    aiSuggestion: lastAiSuggestion,
+                    scenarioName: name
+                })
+            });
+            if (!r.ok) { const e = await r.json(); return alert('导出失败: ' + (e.error||'')); }
+            const blob = await r.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'panshaker_finance_' + Date.now() + '.xlsx';
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+        } catch (e) { alert('导出失败: ' + e.message); }
+    }
+
+    // ── AI suggest ──
+    function openAiDrawer() { document.getElementById('aiDrawer').classList.add('open'); }
+    function closeAiDrawer() { document.getElementById('aiDrawer').classList.remove('open'); }
+
+    async function callAi() {
+        const btn = document.getElementById('aiCallBtn');
+        const status = document.getElementById('aiStatus');
+        const result = document.getElementById('aiResult');
+        btn.disabled = true;
+        status.textContent = '调用 GLM-4.6V 中，请稍候（最长 45 秒）...';
+        result.innerHTML = '';
+        try {
+            const r = await fetch('/api/finance/ai-suggest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(scenario)
+            });
+            const j = await r.json();
+            if (!r.ok || !j.suggestion) {
+                status.textContent = '';
+                result.innerHTML = `<div class="ai-section" style="color:#900;"><h4>调用失败</h4><p>${escapeHtml(j.error || 'unknown')}</p>${j.detail?`<p>${escapeHtml(String(j.detail).slice(0,400))}</p>`:''}</div>`;
+                return;
+            }
+            lastAiSuggestion = j.suggestion;
+            renderAiSuggestion(j.suggestion);
+            status.textContent = '已获取建议';
+        } catch (e) {
+            status.textContent = '';
+            result.innerHTML = `<div class="ai-section" style="color:#900;"><h4>网络错误</h4><p>${escapeHtml(e.message||e)}</p></div>`;
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    function renderAiSuggestion(s) {
+        const box = document.getElementById('aiResult');
+        const bp = s.buyoutPrice || {};
+        const l = s.lease || {};
+        const cs = s.commissionSplit || {};
+        const risks = s.risks || [];
+        let html = '';
+        html += `<div class="ai-section"><h4>买断建议</h4>
+            <p><b>区间：</b> ${PsFinance.fmtUSD(bp.low)} ~ ${PsFinance.fmtUSD(bp.high)}</p>
+            <p>${escapeHtml(bp.reason||'')}</p></div>`;
+        html += `<div class="ai-section"><h4>租赁建议</h4>
+            <p><b>首期：</b> ${PsFinance.fmtUSD(l.firstPay)}</p>
+            <p><b>月租：</b> ${PsFinance.fmtUSD(l.monthlyRent)}</p>
+            <p><b>押金：</b> 租 ${l.firstPayMonths||1} 押 ${l.depositMonths||2} (约 ${PsFinance.fmtUSD((l.monthlyRent||0) * (l.depositMonths||0))})</p>
+            <p><b>最低租期：</b> ${l.minMonths||24} 月</p>
+            <p><b>提前退租费：</b> ${PsFinance.fmtUSD(l.earlyTerminationFee)}</p>
+            <p><b>回本月数：</b> ${l.paybackMonths||'?'} 月</p>
+            <p>${escapeHtml(l.reason||'')}</p></div>`;
+        if (cs.usSalesPct != null || cs.chinaReferralPct != null) {
+            const effective = (Number(cs.usSalesPct)||0)
+                + (Number(cs.chinaReferralPct)||0) * (Number(cs.chinaReferralAttachRate)||0)
+                + (Number(cs.otherPct)||0);
+            html += `<div class="ai-section"><h4>中美跨境提成分成建议</h4>
+                <p><b>美国成交方：</b> ${((Number(cs.usSalesPct)||0)*100).toFixed(2)}%</p>
+                <p><b>中国引流方：</b> ${((Number(cs.chinaReferralPct)||0)*100).toFixed(2)}%</p>
+                <p><b>中国引流占比：</b> ${((Number(cs.chinaReferralAttachRate)||0)*100).toFixed(1)}%</p>
+                <p><b>其他提成：</b> ${((Number(cs.otherPct)||0)*100).toFixed(2)}%</p>
+                <p><b>有效综合提成率：</b> ${(effective*100).toFixed(2)}%</p>
+                <p>${escapeHtml(cs.reason||'')}</p></div>`;
+        }
+        if (s.cashflowWarning) {
+            html += `<div class="ai-section"><h4>现金流预警</h4><p>${escapeHtml(s.cashflowWarning)}</p></div>`;
+        }
+        if (risks.length) {
+            html += `<div class="ai-section"><h4>风险点</h4><ul>` + risks.map(r => `<li>${escapeHtml(r)}</li>`).join('') + `</ul></div>`;
+        }
+        if (s.competitiveRationale) {
+            html += `<div class="ai-section"><h4>竞品差异化说理</h4><p>${escapeHtml(s.competitiveRationale)}</p></div>`;
+        }
+        html += `<div style="padding:8px;">
+            <button onclick="applyAiSuggestion()" style="width:100%;" data-i18n="aiApplyBtn">应用到当前场景</button>
+        </div>`;
+        box.innerHTML = html;
+    }
+
+    window.applyAiSuggestion = function () {
+        if (!lastAiSuggestion) return;
+        const bp = lastAiSuggestion.buyoutPrice || {};
+        const l = lastAiSuggestion.lease || {};
+        const cs = lastAiSuggestion.commissionSplit || {};
+        const low = Number(bp.low) || 0;
+        const high = Number(bp.high) || 0;
+        const midPrice = (low && high) ? (low + high) / 2 : (low || high || scenario.buyout.priceUSD);
+        scenario.buyout.priceUSD = Math.round(midPrice || scenario.buyout.priceUSD);
+        if (l.firstPay != null) scenario.lease.firstPayUSD = Number(l.firstPay);
+        if (l.monthlyRent != null) scenario.lease.monthlyRentUSD = Number(l.monthlyRent);
+        if (l.depositMonths != null) scenario.lease.depositMonths = Number(l.depositMonths);
+        if (l.firstPayMonths != null) scenario.lease.firstPayMonths = Number(l.firstPayMonths);
+        if (l.minMonths != null) scenario.lease.minMonths = Number(l.minMonths);
+        if (l.earlyTerminationFee != null) scenario.lease.earlyTerminationFeeUSD = Number(l.earlyTerminationFee);
+        if (!scenario.product.commissions) scenario.product.commissions = {};
+        if (cs.usSalesPct != null) scenario.product.commissions.usSalesPct = Number(cs.usSalesPct);
+        if (cs.chinaReferralPct != null) scenario.product.commissions.chinaReferralPct = Number(cs.chinaReferralPct);
+        if (cs.chinaReferralAttachRate != null) scenario.product.commissions.chinaReferralAttachRate = Number(cs.chinaReferralAttachRate);
+        if (cs.otherPct != null) scenario.product.commissions.otherPct = Number(cs.otherPct);
+        bindAll();
+        recomputeAndRender();
+        alert('已应用 AI 建议到当前场景（未保存到云端，请点「保存」按钮持久化）');
+    };
+
+    // ── Utils ──
+    function escapeHtml(s) {
+        const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML;
+    }
+    function escapeAttr(s) { return String(s||'').replace(/"/g, '&quot;'); }
+    function logout() {
+        localStorage.removeItem('ps_role');
+        window.location.href = 'login.html';
+    }
+
+    init();
+</script>
+
+</body>
+</html>
