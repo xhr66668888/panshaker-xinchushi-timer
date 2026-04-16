@@ -125,6 +125,32 @@
             padding: 6px; margin-top: 4px; font-size: 11px;
         }
 
+        /* Prominent per-unit cost summary banner */
+        .unit-cost-banner {
+            background: linear-gradient(90deg, #fff9d6 0%, #ffe7a8 100%);
+            border: 2px ridge #c8a700;
+            padding: 8px 12px;
+            margin: 8px 0 10px 0;
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 6px 16px;
+            align-items: center;
+        }
+        .unit-cost-banner .title {
+            font-weight: bold; font-size: 13px; color: #5a4200;
+            padding-right: 10px; border-right: 1px solid #c8a700;
+        }
+        .unit-cost-banner .big-values { display: flex; gap: 18px; font-size: 14px; }
+        .unit-cost-banner .big-values b { color: #8a0000; font-size: 16px; font-family: 'Courier New', monospace; }
+        .unit-cost-banner .breakdown {
+            grid-column: 1 / -1;
+            font-size: 11px; color: #333; padding-top: 4px;
+            border-top: 1px dashed #c8a700; margin-top: 2px;
+            line-height: 1.6;
+        }
+        .unit-cost-banner .breakdown span { margin-right: 8px; white-space: nowrap; }
+        .unit-cost-banner .breakdown b { color: #000; }
+
         #langToggle {
             position: fixed; bottom: calc(10px + env(safe-area-inset-bottom)); right: 10px;
             z-index: 9999; padding: 2px 8px; font-size: 12px; cursor: pointer;
@@ -238,6 +264,11 @@
                     <span data-i18n="effCommissionLabel">有效综合提成率:</span>
                     <b id="effCommission">-</b>
                     <span style="margin-left:10px;" data-i18n="priceSymbolHintLabel">金额单位跟随上方</span><b id="curSymbolHint">$</b>
+                </div>
+                <div class="unit-cost-banner" id="unitCostBanner">
+                    <div class="title" data-i18n="unitCostBannerTitle">单台综合成本</div>
+                    <div class="big-values" id="unitCostBigValues">-</div>
+                    <div class="breakdown" id="unitCostBreakdown">-</div>
                 </div>
             </div>
             <div class="col" style="flex:1;min-width:280px;">
@@ -686,7 +717,38 @@
         // Forecast table width follows the selected cashflow window.
         renderForecast();
         updateCommissionDisplay();
+        renderUnitCostBanner();
         flashRecalcIndicator();
+    }
+
+    function renderUnitCostBanner() {
+        const bd = PsFinance.unitCostBreakdown(scenario);
+        const bigEl = document.getElementById('unitCostBigValues');
+        const smallEl = document.getElementById('unitCostBreakdown');
+        if (!bigEl || !smallEl) return;
+        bigEl.innerHTML =
+            '<span>买断: <b>' + fmtMoney(bd.buyoutTotal) + '</b></span>' +
+            '<span>租赁(最低租期): <b>' + fmtMoney(bd.leaseTotal) + '</b></span>';
+        const parts = [];
+        const addPart = (label, val, note) => {
+            if (Math.abs(val) < 0.001) return;
+            parts.push('<span>' + label + ' <b>' + fmtMoney(val) + '</b>' + (note ? '<small style="color:#666;"> ' + note + '</small>' : '') + '</span>');
+        };
+        addPart('基础设备', bd.base);
+        addPart('海运', bd.ocean);
+        addPart('关税', bd.duty);
+        addPart('港口杂费', bd.port);
+        addPart('美国内陆', bd.inland);
+        parts.push('<span style="color:#5a4200;">= 到岸 <b>' + fmtMoney(bd.landed) + '</b></span>');
+        addPart('上门培训', bd.install);
+        addPart('质保', bd.warranty);
+        addPart('客户运输', bd.shipping);
+        addPart('广告', bd.ads);
+        addPart('自定义(买断)', bd.customBuyout);
+        addPart('自定义(租赁)', bd.customLease);
+        addPart('提成(买断)', bd.buyoutCommission, '基于售价');
+        addPart('提成(租赁)', bd.leaseCommission, '基于 LTV');
+        smallEl.innerHTML = parts.join(' + ');
     }
 
     function flashRecalcIndicator() {

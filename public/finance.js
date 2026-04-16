@@ -43,6 +43,46 @@
         return base + num(l.oceanFreightUSD) + duty + num(l.portFeesUSD) + num(l.usInlandFreightUSD);
     }
 
+    // Full per-unit cost breakdown so the UI can show every component at a glance.
+    // Returns landed sub-parts + installation + warranty + shipping + advertising +
+    // custom-per-unit + commission (calculated per channel since commission basis differs).
+    function unitCostBreakdown(scenario) {
+        const p = scenario.product || {};
+        const l = p.landed || {};
+        const base = num(p.unitCostUSD);
+        const ocean = num(l.oceanFreightUSD);
+        const duty = base * num(l.importDutyPct);
+        const port = num(l.portFeesUSD);
+        const inland = num(l.usInlandFreightUSD);
+        const landed = base + ocean + duty + port + inland;
+
+        const install = num(p.installTrainingUSD);
+        const warranty = num(p.warrantyUSD);
+        const shipping = num(p.shippingToCustomerUSD);
+        const ads = num(p.advertisingUSD);
+        const customBuyout = customPerUnit(scenario, 'buyout') + customPerCustomer(scenario, 'buyout');
+        const customLease  = customPerUnit(scenario, 'lease')  + customPerCustomer(scenario, 'lease');
+
+        const commissionRate = effectiveCommissionRate(scenario);
+        const buyoutCommission = num(scenario.buyout?.priceUSD) * commissionRate;
+        const leaseMinTermRevenue = num(scenario.lease?.activationFeeUSD)
+            + num(scenario.lease?.monthlyRentUSD) * Math.max(1, num(scenario.lease?.minMonths, 1));
+        const leaseCommission = leaseMinTermRevenue * commissionRate;
+
+        const preCommissionCommon = landed + install + warranty + shipping + ads;
+        const buyoutTotal = preCommissionCommon + customBuyout + buyoutCommission;
+        const leaseTotal  = preCommissionCommon + customLease  + leaseCommission;
+
+        return {
+            base, ocean, duty, port, inland, landed,
+            install, warranty, shipping, ads,
+            customBuyout, customLease,
+            buyoutCommission, leaseCommission,
+            preCommissionCommon,
+            buyoutTotal, leaseTotal
+        };
+    }
+
     function customPerUnit(scenario, channel) {
         return (scenario.customCosts || [])
             .filter(c => (c.appliesTo === channel || c.appliesTo === 'both') && c.unit === 'per_unit')
@@ -429,7 +469,7 @@
 
     global.PsFinance = {
         toUSD, toCNY,
-        computeLandedUnitCost,
+        computeLandedUnitCost, unitCostBreakdown,
         perUnitBuyout, perUnitLease,
         computePnl, computeCashflow, computeKPIs, computeAll,
         buildBuyoutRows, buildLeaseRows,
