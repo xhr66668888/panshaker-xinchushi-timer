@@ -179,27 +179,24 @@ function buildBaselineScenario() {
             federalCorpPct: 0.21,
             stateCorpPct: US_STATE_CORP_TAX.DE,
             franchiseTaxAnnualUSD: 400,
-            payroll: {
-                ficaEmployerPct: 0.0765,
-                futaPct: 0.006,
-                sutaPct: 0.018,
-                benefitsPctOfSalary: 0.15
-            }
+            // Single combined employer payroll-tax rate. Default 9% ≈
+            // FICA 7.65% + FUTA 0.6% + SUTA ~1.8%. User can fine-tune.
+            employerPayrollPct: 0.09
         },
+        employees: [
+            { id: 'e_sales1', name: '\u9500\u552e 1', position: 'sales', monthlyPayUSD: 5000, type: 'gross' },
+            { id: 'e_mgmt1',  name: '\u7ba1\u7406 1', position: 'mgmt',  monthlyPayUSD: 8000, type: 'gross' }
+        ],
         opex: {
             categories: [
-                { id: 'salesSalary', name: '\u9500\u552e\u4eba\u5458\u85aa\u916c',     months: months12(8000)  },
-                { id: 'mgmtSalary',  name: '\u7ba1\u7406\u4eba\u5458\u85aa\u916c',     months: months12(10000) },
-                { id: 'payrollTax',  name: 'Payroll Tax (FICA/FUTA/SUTA)',             months: months12(1815)  },
-                { id: 'benefits',    name: '\u5458\u5de5\u798f\u5229/\u4fdd\u9669',    months: months12(2700)  },
-                { id: 'ads',         name: '\u5e7f\u544a\u8d39',                        months: months12(5000)  },
-                { id: 'travel',      name: '\u5dee\u65c5\u8d39',                        months: months12(1500)  },
-                { id: 'rent',        name: '\u623f\u79df',                              months: months12(3500)  },
-                { id: 'utilities',   name: '\u6c34\u7535\u71c3\u6c14',                  months: months12(600)   },
-                { id: 'office',      name: '\u529e\u516c\u8d39',                        months: months12(300)   },
-                { id: 'phone',       name: '\u7535\u8bdd/\u7f51\u7edc\u8d39',           months: months12(200)   },
-                { id: 'aftersales',  name: '\u552e\u540e',                              months: months12(600)   },
-                { id: 'other',       name: '\u5176\u4ed6\u8d39\u7528',                  months: months12(500)   }
+                { id: 'ads',        name: '\u5e7f\u544a\u8d39',              months: months12(5000) },
+                { id: 'travel',     name: '\u5dee\u65c5\u8d39',              months: months12(1500) },
+                { id: 'rent',       name: '\u623f\u79df',                    months: months12(3500) },
+                { id: 'utilities',  name: '\u6c34\u7535\u71c3\u6c14',        months: months12(600)  },
+                { id: 'office',     name: '\u529e\u516c\u8d39',              months: months12(300)  },
+                { id: 'phone',      name: '\u7535\u8bdd/\u7f51\u7edc\u8d39', months: months12(200)  },
+                { id: 'aftersales', name: '\u552e\u540e',                    months: months12(600)  },
+                { id: 'other',      name: '\u5176\u4ed6\u8d39\u7528',        months: months12(500)  }
             ]
         },
         customCosts: [],
@@ -256,17 +253,13 @@ function buildLegacyExcelScenario() {
             federalCorpPct: 0.21,
             stateCorpPct: US_STATE_CORP_TAX.DE,
             franchiseTaxAnnualUSD: 400,
-            payroll: {
-                ficaEmployerPct: 0.0765,
-                futaPct: 0.006,
-                sutaPct: 0.018,
-                benefitsPctOfSalary: 0.15
-            }
+            employerPayrollPct: 0.09
         },
+        employees: [
+            { id: 'e1', name: '\u9500\u552e 1', position: 'sales', monthlyPayUSD: 8000, type: 'gross' }
+        ],
         opex: {
             categories: [
-                { id: 'salary', name: '\u5de5\u8d44(\u4e0d\u542b\u63d0\u6210)', months: months12(8000) },
-                { id: 'social', name: '\u793e\u4fdd',                            months: months12(0)    },
                 { id: 'rent',   name: '\u623f\u79df\u6c34\u7535',                months: months12(0)    },
                 { id: 'travel', name: '\u9500\u552e\u5dee\u65c5\u8d39',          months: months12(500)  },
                 { id: 'other',  name: '\u5176\u4ed6',                            months: months12(300)  }

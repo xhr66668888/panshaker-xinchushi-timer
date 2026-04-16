@@ -104,6 +104,51 @@
             .reduce((s, c) => s + num(c.valueUSD), 0);
     }
 
+    // Net → gross conversion: rough US average combined employee tax burden
+    // (federal + state + FICA employee share). Conservative 28%.
+    const EMPLOYEE_NET_TO_GROSS_TAX = 0.28;
+
+    // Employer payroll tax multiplier.
+    // Uses new single tax.employerPayrollPct, with legacy fallback summing
+    // FICA + FUTA + SUTA from the old schema.
+    function employerPayrollPct(scenario) {
+        const tax = scenario.tax || {};
+        if (tax.employerPayrollPct != null) return num(tax.employerPayrollPct);
+        const p = tax.payroll || {};
+        return num(p.ficaEmployerPct) + num(p.futaPct) + num(p.sutaPct);
+    }
+
+    // Total company cost of the employee roster per month (gross + payroll tax).
+    function computeEmployeeCost(scenario) {
+        const payrollRate = employerPayrollPct(scenario);
+        let grossTotal = 0;
+        let netInputTotal = 0;
+        const rows = [];
+        for (const e of (scenario.employees || [])) {
+            const amt = num(e.monthlyPayUSD);
+            const isNet = (e.type === 'net');
+            const gross = isNet ? amt / (1 - EMPLOYEE_NET_TO_GROSS_TAX) : amt;
+            grossTotal += gross;
+            if (isNet) netInputTotal += amt;
+            rows.push({
+                id: e.id,
+                name: e.name,
+                position: e.position,
+                type: e.type,
+                monthlyPayUSD: amt,
+                monthlyGrossUSD: gross,
+                monthlyCompanyCostUSD: gross * (1 + payrollRate)
+            });
+        }
+        const payrollTaxTotal = grossTotal * payrollRate;
+        return {
+            rows,
+            grossMonthlyTotal: grossTotal,
+            payrollTaxMonthlyTotal: payrollTaxTotal,
+            companyCostMonthlyTotal: grossTotal + payrollTaxTotal
+        };
+    }
+
     function monthlyFixedOpex(scenario, monthIdx) {
         const cats = scenario.opex?.categories || [];
         const idx = ((num(monthIdx) % 12) + 12) % 12;
@@ -111,6 +156,8 @@
         for (const c of cats) sum += num((c.months || [])[idx]);
         sum += customPerMonthTotal(scenario);
         sum += num(scenario.product?.landed?.warehouseMonthlyUSD);
+        // Roll-up of the employee roster (gross + employer payroll tax)
+        sum += computeEmployeeCost(scenario).companyCostMonthlyTotal;
         return sum;
     }
     function avgMonthlyFixedOpex(scenario) {
@@ -475,6 +522,7 @@
         buildBuyoutRows, buildLeaseRows,
         effectiveCommissionRate, commissionBreakdown,
         avgMonthlyFixedOpex, monthlyFixedOpex,
+        computeEmployeeCost, employerPayrollPct,
         fmtUSD, fmtCNY, fmt, fmtPct, fmtInt, r2, num
     };
 })(window);

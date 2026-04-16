@@ -313,6 +313,7 @@
         <div class="tab-btn active" data-tab="buyout"   onclick="showTab('buyout')"   data-i18n="tabBuyout">买断明细</div>
         <div class="tab-btn"        data-tab="lease"    onclick="showTab('lease')"    data-i18n="tabLease">租赁明细</div>
         <div class="tab-btn"        data-tab="forecast" onclick="showTab('forecast')" data-i18n="tabForecast">销量预测</div>
+        <div class="tab-btn"        data-tab="employees" onclick="showTab('employees')" data-i18n="tabEmployees">员工</div>
         <div class="tab-btn"        data-tab="opex"     onclick="showTab('opex')"     data-i18n="tabOpex">月度费用</div>
         <div class="tab-btn"        data-tab="custom"   onclick="showTab('custom')"   data-i18n="tabCustom">自定义成本项</div>
         <div class="tab-btn"        data-tab="settings" onclick="showTab('settings')" data-i18n="tabSettings">设置</div>
@@ -344,12 +345,33 @@
                 </div>
             </div>
 
+            <!-- ====== 员工 ====== -->
+            <div class="tab-panel" id="tabPanel-employees">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <h4 style="margin:6px 0;" data-i18n="employeesTitle">员工薪酬</h4>
+                    <button onclick="addEmployee()" data-i18n="addEmployeeBtn">+ 添加员工</button>
+                </div>
+                <div style="padding:4px 0;font-size:11px;color:#333;" data-i18n="employeesHelp">
+                    录入每个员工的月薪（税前 gross 或 税后 net），系统自动加上雇主薪酬税合并到月度固定成本。Net→Gross 默认按 28% 员工综合个税率换算。
+                </div>
+                <div class="cost-item-row" style="font-weight:bold;background:#dfdfdf;grid-template-columns:2fr 1fr 1fr 1fr auto;">
+                    <span data-i18n="empColName">姓名</span>
+                    <span data-i18n="empColPosition">职位</span>
+                    <span data-i18n="empColType">税前/税后</span>
+                    <span data-i18n="empColAmount">月薪</span>
+                    <span data-i18n="empColOps">操作</span>
+                </div>
+                <div id="employeeList"></div>
+                <div id="employeeSummary" style="margin-top:10px;padding:8px;background:#fff9d6;border:2px ridge #c8a700;font-size:12px;"></div>
+            </div>
+
             <!-- ====== 月度费用 ====== -->
             <div class="tab-panel" id="tabPanel-opex">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                     <h4 style="margin:6px 0;" data-i18n="opexTitle">月度固定费用预算</h4>
                     <button onclick="addOpexCategory()" data-i18n="addOpexBtn">+ 添加科目</button>
                 </div>
+                <div id="opexEmployeeSummary" style="padding:6px 8px;background:#eef;border:1px inset #dfdfdf;margin-bottom:6px;font-size:12px;"></div>
                 <div style="overflow:auto;">
                     <table class="opex" id="opexTable"></table>
                 </div>
@@ -396,22 +418,22 @@
                     </fieldset>
                     <fieldset class="col">
                         <legend data-i18n="taxTitle">税率（美国，可调）</legend>
+                        <div style="font-size:11px;color:#555;padding:2px 0 6px;" data-i18n="taxHelp">
+                            销售在 Delaware 不产生州销售税；各州 Sales Tax 表在下方"美国各州销售税"里。
+                        </div>
                         <div class="field-row"><label data-i18n="taxFederal">联邦企业所得税</label>
-                            <input type="number" step="0.001" data-bind="tax.federalCorpPct"></div>
+                            <input type="number" step="0.001" data-bind="tax.federalCorpPct">
+                            <span class="hint">默认 0.21 (21%)</span></div>
                         <div class="field-row"><label data-i18n="taxStateCorp">州企业所得税</label>
                             <input type="number" step="0.001" data-bind="tax.stateCorpPct">
                             <button onclick="applyStateTax()" style="margin-left:4px;" data-i18n="useStateDefault">用州默认值</button>
                         </div>
                         <div class="field-row"><label data-i18n="taxFranchise">Franchise (年/USD)</label>
-                            <input type="number" step="1" data-money data-bind="tax.franchiseTaxAnnualUSD"></div>
-                        <div class="field-row"><label data-i18n="taxFICA">FICA 雇主端</label>
-                            <input type="number" step="0.001" data-bind="tax.payroll.ficaEmployerPct"></div>
-                        <div class="field-row"><label data-i18n="taxFUTA">FUTA</label>
-                            <input type="number" step="0.001" data-bind="tax.payroll.futaPct"></div>
-                        <div class="field-row"><label data-i18n="taxSUTA">SUTA</label>
-                            <input type="number" step="0.001" data-bind="tax.payroll.sutaPct"></div>
-                        <div class="field-row"><label data-i18n="taxBenefits">福利比例</label>
-                            <input type="number" step="0.01" data-bind="tax.payroll.benefitsPctOfSalary"></div>
+                            <input type="number" step="1" data-money data-bind="tax.franchiseTaxAnnualUSD">
+                            <span class="hint">DE C-Corp 最低 $400</span></div>
+                        <div class="field-row"><label data-i18n="taxEmployerPayroll">雇主薪酬税合计</label>
+                            <input type="number" step="0.001" data-bind="tax.employerPayrollPct">
+                            <span class="hint">默认 0.09 (FICA+FUTA+SUTA)</span></div>
                     </fieldset>
                 </div>
                 <div class="row">
@@ -592,6 +614,24 @@
         if (sc.lease && sc.lease.firstPayUSD != null) delete sc.lease.firstPayUSD;
         if (!sc.lease) sc.lease = {};
         if (sc.lease.activationFeeUSD == null) sc.lease.activationFeeUSD = 0;
+        // Tax schema v2 → v3: fold payroll.{fica+futa+suta} into single employerPayrollPct
+        if (!sc.tax) sc.tax = {};
+        if (sc.tax.employerPayrollPct == null) {
+            const p = sc.tax.payroll || {};
+            const sum = (Number(p.ficaEmployerPct) || 0) + (Number(p.futaPct) || 0) + (Number(p.sutaPct) || 0);
+            sc.tax.employerPayrollPct = sum > 0 ? sum : 0.09;
+        }
+        // Remove deprecated benefits / old payroll object to keep storage clean
+        if (sc.tax.payroll) delete sc.tax.payroll;
+        // Employees array
+        if (!Array.isArray(sc.employees)) sc.employees = [];
+        // Remove deprecated salary-type opex categories if still lingering
+        // (baseline/老版excel now ship without them; migrate in case a saved scenario still has them)
+        if (sc.opex && Array.isArray(sc.opex.categories)) {
+            sc.opex.categories = sc.opex.categories.filter(cat =>
+                !['salesSalary', 'mgmtSalary', 'payrollTax', 'benefits', 'salary', 'social'].includes(cat.id)
+            );
+        }
         if (!sc.forecast) sc.forecast = {};
         if (!Array.isArray(sc.forecast.buyoutMonthlyUnits)) sc.forecast.buyoutMonthlyUnits = new Array(12).fill(1);
         if (!Array.isArray(sc.forecast.leaseMonthlyUnits))  sc.forecast.leaseMonthlyUnits  = new Array(12).fill(2);
@@ -645,6 +685,86 @@
         if (id && id !== currentId) await loadScenario(id);
     }
 
+    // ── Employees (salary roster) ──
+    function renderEmployees() {
+        const list = document.getElementById('employeeList');
+        if (!list) return;
+        const emps = scenario.employees || [];
+        if (emps.length === 0) {
+            list.innerHTML = '<div style="padding:10px;color:#666;font-style:italic;">暂无员工记录。点击「+ 添加员工」。</div>';
+        } else {
+            const positions = ['sales', 'mgmt', 'eng', 'ops', 'other'];
+            list.innerHTML = emps.map((e, i) => {
+                const disp = displayCurrency === 'CNY' ? PsFinance.r2((Number(e.monthlyPayUSD) || 0) * fxRate) : (Number(e.monthlyPayUSD) || 0);
+                const posOpts = positions.map(p => `<option value="${p}" ${e.position===p?'selected':''}>${positionLabel(p)}</option>`).join('');
+                return `<div class="cost-item-row" style="grid-template-columns:2fr 1fr 1fr 1fr auto;">
+                    <input type="text" value="${escapeAttr(e.name || '')}" onchange="updateEmployee(${i},'name',this.value)">
+                    <select onchange="updateEmployee(${i},'position',this.value)">${posOpts}</select>
+                    <select onchange="updateEmployee(${i},'type',this.value)">
+                        <option value="gross" ${e.type==='gross'?'selected':''}>税前 Gross</option>
+                        <option value="net" ${e.type==='net'?'selected':''}>税后 Net</option>
+                    </select>
+                    <input type="number" step="1" min="0" value="${disp}" onchange="updateEmployee(${i},'monthlyPayUSD',this.value,true)">
+                    <button onclick="removeEmployee(${i})">删除</button>
+                </div>`;
+            }).join('');
+        }
+        // Summary panel
+        const ec = PsFinance.computeEmployeeCost(scenario);
+        const payrollPct = PsFinance.employerPayrollPct(scenario);
+        const sumBox = document.getElementById('employeeSummary');
+        if (sumBox) {
+            sumBox.innerHTML = `
+                <div style="font-weight:bold;font-size:13px;margin-bottom:4px;">月度员工综合成本（自动合并到月度固定成本）</div>
+                <div>月度 Gross 总额: <b>${fmtMoney(ec.grossMonthlyTotal)}</b></div>
+                <div>雇主薪酬税 (${(payrollPct*100).toFixed(2)}%): <b>${fmtMoney(ec.payrollTaxMonthlyTotal)}</b></div>
+                <div style="border-top:1px solid #c8a700;margin-top:3px;padding-top:3px;font-size:14px;">
+                    公司月度总人力成本 = <b style="color:#8a0000;">${fmtMoney(ec.companyCostMonthlyTotal)}</b>
+                </div>`;
+        }
+        const opexSum = document.getElementById('opexEmployeeSummary');
+        if (opexSum) {
+            const n = (scenario.employees || []).length;
+            opexSum.innerHTML = `员工薪酬自动汇总 (来自「员工」 tab): <b>${fmtMoney(ec.companyCostMonthlyTotal)}</b>/月 · 含 ${n} 位员工 gross <b>${fmtMoney(ec.grossMonthlyTotal)}</b> + 雇主薪酬税 <b>${fmtMoney(ec.payrollTaxMonthlyTotal)}</b>`;
+        }
+    }
+
+    function positionLabel(p) {
+        switch (p) {
+            case 'sales': return '销售';
+            case 'mgmt':  return '管理';
+            case 'eng':   return '研发';
+            case 'ops':   return '运营';
+            default:      return '其他';
+        }
+    }
+
+    window.updateEmployee = function (i, key, val, isMoney) {
+        if (!scenario.employees) scenario.employees = [];
+        if (isMoney) {
+            const n = Number(val) || 0;
+            val = displayCurrency === 'CNY' ? n / fxRate : n;
+        }
+        scenario.employees[i][key] = val;
+        recomputeAndRender();
+    };
+    window.removeEmployee = function (i) {
+        if (!confirm('删除该员工？')) return;
+        scenario.employees.splice(i, 1);
+        recomputeAndRender();
+    };
+    window.addEmployee = function () {
+        if (!Array.isArray(scenario.employees)) scenario.employees = [];
+        scenario.employees.push({
+            id: 'e_' + Date.now(),
+            name: '新员工',
+            position: 'sales',
+            monthlyPayUSD: 5000,
+            type: 'gross'
+        });
+        recomputeAndRender();
+    };
+
     // ── Two-way data binding ──
     // Number inputs tagged with [data-money] are displayed in the current global
     // display currency. Storage is always USD. On user input, we convert back to USD.
@@ -674,6 +794,7 @@
         renderOpex();
         renderCustomCosts();
         renderForecast();
+        renderEmployees();
     }
 
     function renderBoundField(el, path) {
@@ -700,6 +821,7 @@
         // Tables with money values in their own markup must be redrawn too.
         renderOpex();
         renderCustomCosts();
+        renderEmployees();
         recomputeAndRender();
     }
 
@@ -716,6 +838,7 @@
         renderChart(res.cashflow);
         // Forecast table width follows the selected cashflow window.
         renderForecast();
+        renderEmployees();
         updateCommissionDisplay();
         renderUnitCostBanner();
         flashRecalcIndicator();
