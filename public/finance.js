@@ -110,11 +110,14 @@
         const firstPayMonths = Math.max(0, num(L.firstPayMonths, 0));
         const depositMonths = Math.max(0, num(L.depositMonths, 0));
         const minMonths = Math.max(1, num(L.minMonths, 1));
+        // Non-refundable activation / onboarding / installation fee charged at lease start.
+        const activationFee = num(L.activationFeeUSD);
 
-        // Customer pays upfront: firstPayMonths × rent + deposit (deposit refunded later).
-        const firstPeriodCashIn = rent * (firstPayMonths + depositMonths);
-        // Revenue recognized over min-term = rent × minMonths (deposit not revenue).
-        const minTermRevenue = rent * minMonths;
+        // Customer pays upfront: activationFee + firstPayMonths × rent + deposit × rent
+        // (deposit later refunded; activation fee kept).
+        const firstPeriodCashIn = activationFee + rent * (firstPayMonths + depositMonths);
+        // Revenue recognized within min-term = activationFee + rent × minMonths (deposit not revenue).
+        const minTermRevenue = activationFee + rent * minMonths;
 
         const landed = computeLandedUnitCost(scenario);
         const commission = minTermRevenue * effectiveCommissionRate(scenario);
@@ -128,13 +131,21 @@
             + customPerCustomer(scenario, 'lease');
 
         const ltvNet = minTermRevenue - upfrontVarCost;
-        // Payback in months: how many months of rent cover upfront var cost beyond firstPay.
-        const rentAfterFirst = rent; // net: each month after first-pay adds rent (first-pay already covers firstPayMonths months of rent which are also accounted for in minTermRevenue, so this is simple linear)
-        let paybackMonths = Infinity;
-        if (rentAfterFirst > 0 && upfrontVarCost > 0) {
-            paybackMonths = Math.max(0, Math.ceil(upfrontVarCost / rentAfterFirst));
-        } else if (upfrontVarCost <= 0) {
+        // First-month net cash per unit (how much of upfront var cost is covered by the
+        // first-period cash-in). Negative means the business loses cash per new lease.
+        const firstMonthNetCashPerUnit = firstPeriodCashIn - upfrontVarCost;
+
+        // Payback months: after first period, remaining cost recovered by monthly rent.
+        // rentCoverFirst = first-pay months of rent already prepaid → they aren't extra cash.
+        // Remaining shortfall = max(0, upfrontVarCost - firstPeriodCashIn); each month after
+        // firstPayMonths generates `rent` cash.
+        let paybackMonths;
+        if (firstMonthNetCashPerUnit >= 0) {
             paybackMonths = 0;
+        } else if (rent > 0) {
+            paybackMonths = firstPayMonths + Math.ceil((-firstMonthNetCashPerUnit) / rent);
+        } else {
+            paybackMonths = Infinity;
         }
 
         return {
@@ -142,7 +153,9 @@
             firstPayMonths,
             depositMonths,
             minMonths,
+            activationFee,
             firstPeriodCashIn,
+            firstMonthNetCashPerUnit,
             minTermRevenue,
             landed,
             commission,
@@ -234,7 +247,8 @@
                 }
             }
 
-            // New cohort cash
+            // New cohort cash: activation fee (kept) + prepaid rent + deposit (liability cash in)
+            const leaseActivationIn = newLease * l.activationFee;
             const leaseFirstPayIn = newLease * l.rent * l.firstPayMonths;
             const leaseDepositIn  = newLease * l.rent * l.depositMonths;
             const leaseUpfrontCost = newLease * l.upfrontVarCost;
@@ -245,7 +259,7 @@
             const fixedMonthly = monthlyFixedOpex(scenario, idx);
             const onceCost = m === 1 ? onceTotal : 0;
 
-            const revenueThisMonth = buyoutRev + leaseFirstPayIn + leaseRecurringRev;
+            const revenueThisMonth = buyoutRev + leaseActivationIn + leaseFirstPayIn + leaseRecurringRev;
             const varThisMonth = buyoutVarCost + leaseUpfrontCost;
 
             const ebtMonth = revenueThisMonth - varThisMonth - fixedMonthly - franchiseMonthly - onceCost;
@@ -260,12 +274,13 @@
                 buyoutUnits: newBuyout,
                 leaseUnits: newLease,
                 bRev: r2(buyoutRev),
-                lRev: r2(leaseFirstPayIn + leaseRecurringRev),
+                lRev: r2(leaseActivationIn + leaseFirstPayIn + leaseRecurringRev),
                 varC: r2(varThisMonth),
                 fixedC: r2(fixedMonthly + franchiseMonthly + onceCost),
                 tax: r2(taxMonth),
                 net: r2(netCash),
                 cum: r2(cum),
+                activationIn: r2(leaseActivationIn),
                 depositIn: r2(leaseDepositIn),
                 depositOut: r2(leaseDepositRefund),
                 ebt: r2(ebtMonth)
@@ -287,11 +302,13 @@
             buyoutVarCost: r2(b.varPerUnit),
             buyoutGrossPerUnit: r2(b.grossPerUnit),
             buyoutGrossPct: r2(b.grossPct * 100) / 100,
+            leaseActivationFee: r2(l.activationFee),
             leaseMonthlyRent: r2(l.rent),
             leaseFirstPayMonths: l.firstPayMonths,
             leaseDepositMonths: l.depositMonths,
             leaseMinMonths: l.minMonths,
             leaseFirstPeriodCashIn: r2(l.firstPeriodCashIn),
+            leaseFirstMonthNetCashPerUnit: r2(l.firstMonthNetCashPerUnit),
             leaseMinRevenue: r2(l.minTermRevenue),
             leaseUpfrontVarCost: r2(l.upfrontVarCost),
             leaseLtvNet: r2(l.ltvNet),
@@ -350,12 +367,14 @@
         const rows = [];
         const push = (g, n, v, isPct, isTotal) => rows.push({ group: g, name: n, value: v, isPct, isTotal });
 
+        push('假设-政策', '激活费 Activation (USD, 不退)', l.activationFee);
         push('假设-政策', '月租金 (USD)', l.rent);
         push('假设-政策', '首期月数', l.firstPayMonths);
         push('假设-政策', '押金月数', l.depositMonths);
         push('假设-政策', '最低租期 (月)', l.minMonths);
         push('假设-政策', '提前退租费 (USD)', num(scenario.lease?.earlyTerminationFeeUSD));
         push('假设-政策', '首期现金流入 (USD)', l.firstPeriodCashIn);
+        push('假设-政策', '每台首月净现金 (USD)', l.firstMonthNetCashPerUnit);
         push('假设-成本', '单台到岸成本 (USD)', l.landed);
         push('假设-成本', '上门培训 USD/客户', num(p.installTrainingUSD));
         push('假设-成本', '质保 USD/台', num(p.warrantyUSD));

@@ -172,7 +172,8 @@ function buildBaselineScenario() {
             firstPayMonths: 2,
             depositMonths: 1,
             minMonths: 12,
-            earlyTerminationFeeUSD: 2000
+            earlyTerminationFeeUSD: 2000,
+            activationFeeUSD: 0
         },
         tax: {
             federalCorpPct: 0.21,
@@ -248,7 +249,8 @@ function buildLegacyExcelScenario() {
             firstPayMonths: 2,
             depositMonths: 1,
             minMonths: 2,
-            earlyTerminationFeeUSD: 0
+            earlyTerminationFeeUSD: 0,
+            activationFeeUSD: 0
         },
         tax: {
             federalCorpPct: 0.21,
@@ -811,22 +813,60 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
     if (!scenario || typeof scenario !== 'object') return jsonErr(res, 400, '需要提交 scenario JSON');
 
     const systemPrompt = [
-        '你是 Panshaker 美国分公司（Delaware C-Corp，炒菜机器人 B2B）资深定价顾问。',
+        '你是 Panshaker 美国分公司（Delaware C-Corp，炒菜机器人 B2B）资深定价与租赁政策顾问。',
         '产品：芯厨师 X7-2001，中国零售 CNY 38800-50000，中国销售提成 4%；到岸前成本 CNY 27900/台（未含美国关税/海运/内陆/仓储）。',
-        '竞品：智谷天厨，美国报价 USD 11000，FOB 中国港口（不含关税运费）。',
-        '美国市场：Sales Tax 由目的州代收代缴不吃收入；联邦企业税 21%；DE 州 8.7% + Franchise Tax；雇主 payroll 约 9.4%。',
-        '跨境提成机制：中国团队推荐线索→美国成交，提成需中美分成。行业惯例总池 ~5%，CN 引流方 40% / US 成交方 60%；必须把 CN 分成作为美国 P&L 独立变动成本，有效提成率 = usSalesPct + chinaReferralPct × chinaReferralAttachRate + otherPct。',
+        '',
+        '【竞品真实 TCO 解读 - 必须严格按照下面的框架评估，不要简单拿 $11000 做参考】',
+        '竞品：智谷天厨。标价 USD 11000 是 FOB 中国港口的**裸价**，不包含：',
+        '  - 美国关税（HTS 8516.60 约 0-3.7%）、港口杂费',
+        '  - 深圳→美国港口海运（LCL 约 $150-200/台）',
+        '  - 美国内陆 LTL（$250-600/台视距离）',
+        '  - 美国 Sales Tax（由客户承担，不含在标价里）',
+        '  - 上门安装（智谷无此服务）',
+        '  - 本地培训（智谷无此服务）',
+        '  - 售后/质保（智谷无美国本地支持）',
+        '  - SaaS/升级/菜单库（智谷无）',
+        '智谷天厨客户实际到手 TCO ≈ $11000 + $500 运费关税 + $800 自行安装/学习成本 + $0 售后 ≈ $12300 但无服务保障。',
+        'Panshaker 的差异化：美国本地库存、上门安装、培训、12 月质保、持续 SaaS 菜单升级、中美联合售后。',
+        '因此 Panshaker 可合理定位为高端 "turnkey solution"，**建议定价比智谷有效 TCO 高 20-40%**（即 $14000-$17000 区间），理由是 B2B 餐饮客户最痛的是机器停摆一天损失几千美元营业额，服务价值远高于差价。',
+        '',
+        '【美国市场特性】',
+        'Sales Tax 由目的州代收代缴不吃收入；联邦企业税 21%；DE 州 8.7% + Franchise Tax；雇主 payroll 约 9.4%。',
         '目标客户：美国中小餐饮连锁、云厨房、校园/医院食堂、食品工厂。',
-        '任务：基于精简场景 JSON，综合考虑变动成本、目标毛利 35-50%、竞品定位，生成：(1) 买断售价区间 low/high；(2) 租赁参数 monthlyRent/firstPayMonths/depositMonths/minMonths/earlyTerminationFee/paybackMonths，最低租期 LTV 必须 > 变动成本；(3) 建议的中美提成分成 commissionSplit；(4) 现金流转负月份预警；(5) 3 条风险；(6) 与竞品差异化定价说理 1 段。',
+        '',
+        '【跨境提成机制】',
+        '中国团队推荐线索→美国成交，提成中美分成。行业惯例总池 ~5%，CN 引流方 40% / US 成交方 60%；必须把 CN 分成作为美国 P&L 独立变动成本，有效提成率 = usSalesPct + chinaReferralPct × chinaReferralAttachRate + otherPct。',
+        '',
+        '【重点 - 租赁现金流问题】',
+        '用户当前痛点：租出去一台，长期 LTV > 变动成本（盈利），但**早期月度现金流为负**（亏现金）——因为设备成本、培训、运输、广告、提成全部在第 1 月 upfront，而月租金要慢慢收。',
+        '典型化解手段（你必须在 leaseOptimization.plans 里给出三套具体方案，每套方案前置现金流足以覆盖单台前期变动成本）：',
+        '  (a) Activation Fee 一次性激活费/安装部署费（**不退**），行业常见 $1000-3000，放进首月现金流',
+        '  (b) firstPayMonths 首期多预收几个月租金（2-6 月）',
+        '  (c) depositMonths 押金月数（2-3 月，暂时占用客户现金）',
+        '  (d) monthlyRentUSD 上调月租金',
+        '  (e) minMonths 拉长最低租期让回本周期稳',
+        '当前变动成本 = 单台到岸成本 + 安装培训 + 质保 + 运输 + 广告 + 提成×min-term revenue。首期现金流入 = activationFee + (firstPayMonths + depositMonths) × monthlyRent。**必须做到首期现金流入 ≥ 单台前期变动成本**。',
+        '',
+        '【任务输出】',
+        '基于精简场景 JSON，生成：(1) 买断售价区间 low/high（参考上面的 $14000-17000 区间说理）；(2) 主方案 lease；(3) **三套 leaseOptimization.plans（激进/平衡/保守，各自列出 activationFee + firstPayMonths + depositMonths + monthlyRent + minMonths + earlyTerminationFee 以及预期每台首月净现金流和回本月份）**；(4) 建议的中美提成分成；(5) 竞品对比调整后 TCO；(6) 3 条风险；(7) 竞品差异化说理。',
+        '',
         '*** 关键格式约定 ***',
-        '- 所有"率/占比/百分比"字段（usSalesPct, chinaReferralPct, chinaReferralAttachRate, otherPct）必须使用小数 [0, 1]，例如 3% 写作 0.03，30% 写作 0.30，禁止写成 3 或 30。',
-        '- 所有金额字段使用美元数值（无货币符号，无千分位）。',
-        '- 月数字段为整数。',
-        '严格只输出 1 个 JSON 对象，不要 markdown、不要```代码围栏、不要解释文字。schema：',
-        '{"buyoutPrice":{"low":number,"high":number,"reason":string},',
-        '"lease":{"monthlyRent":number,"firstPayMonths":number,"depositMonths":number,"minMonths":number,"earlyTerminationFee":number,"paybackMonths":number,"reason":string},',
+        '- 所有"率/占比/百分比"字段（usSalesPct, chinaReferralPct, chinaReferralAttachRate, otherPct）必须使用小数 [0, 1]，例如 3% 写作 0.03。禁止写成 3 或 30。',
+        '- 所有金额字段使用美元数值（无货币符号、无千分位）。月数字段为整数。',
+        '',
+        '严格只输出 1 个 JSON 对象，不要 markdown、不要代码围栏、不要解释文字。Schema：',
+        '{',
+        '"buyoutPrice":{"low":number,"high":number,"reason":string},',
+        '"competitorAdjustedTCO":{"bareUSD":11000,"totalLandedUSD":number,"servicePenaltyUSD":number,"reason":string},',
+        '"lease":{"monthlyRent":number,"firstPayMonths":number,"depositMonths":number,"minMonths":number,"earlyTerminationFee":number,"activationFee":number,"paybackMonths":number,"reason":string},',
+        '"leaseOptimization":{"problemDiagnosis":string,"recommendedPlanIndex":number,"plans":[',
+        '  {"name":"激进 - 低门槛快速获客","activationFee":number,"firstPayMonths":number,"depositMonths":number,"monthlyRent":number,"minMonths":number,"earlyTerminationFee":number,"expectedFirstMonthCashPerUnit":number,"breakevenMonthPerUnit":number,"rationale":string},',
+        '  {"name":"平衡 - 现金流与增长兼顾","activationFee":number,"firstPayMonths":number,"depositMonths":number,"monthlyRent":number,"minMonths":number,"earlyTerminationFee":number,"expectedFirstMonthCashPerUnit":number,"breakevenMonthPerUnit":number,"rationale":string},',
+        '  {"name":"保守 - 首月现金流必须转正","activationFee":number,"firstPayMonths":number,"depositMonths":number,"monthlyRent":number,"minMonths":number,"earlyTerminationFee":number,"expectedFirstMonthCashPerUnit":number,"breakevenMonthPerUnit":number,"rationale":string}',
+        ']},',
         '"commissionSplit":{"usSalesPct":number,"chinaReferralPct":number,"chinaReferralAttachRate":number,"otherPct":number,"reason":string},',
-        '"cashflowWarning":string,"risks":[string,string,string],"competitiveRationale":string}'
+        '"cashflowWarning":string,"risks":[string,string,string],"competitiveRationale":string',
+        '}'
     ].join('\n');
 
     // Strip non-essential fields from scenario to reduce prompt tokens and latency.
@@ -904,6 +944,18 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
         if (suggestion.commissionSplit) {
             ['usSalesPct', 'chinaReferralPct', 'chinaReferralAttachRate', 'otherPct'].forEach(k => {
                 if (suggestion.commissionSplit[k] != null) suggestion.commissionSplit[k] = normRate(suggestion.commissionSplit[k]);
+            });
+        }
+        // Ensure plans array is always present so UI can render 3 cards even if AI drops some fields
+        if (suggestion.leaseOptimization && Array.isArray(suggestion.leaseOptimization.plans)) {
+            suggestion.leaseOptimization.plans = suggestion.leaseOptimization.plans.map(p => {
+                p = p || {};
+                ['activationFee', 'firstPayMonths', 'depositMonths', 'monthlyRent', 'minMonths', 'earlyTerminationFee', 'expectedFirstMonthCashPerUnit', 'breakevenMonthPerUnit'].forEach(k => {
+                    if (p[k] != null) p[k] = Number(p[k]) || 0;
+                });
+                if (!p.name) p.name = '方案';
+                if (!p.rationale) p.rationale = '';
+                return p;
             });
         }
         res.json({ success: true, elapsedMs: elapsed, model: GLM_MODEL, usage: payload?.usage, suggestion, raw: content });
@@ -1222,33 +1274,59 @@ app.post('/api/finance/export', async (req, res) => {
         s6.columns = [{ width: 24 }, { width: 80 }];
         if (aiSuggestion) {
             const cs = aiSuggestion?.commissionSplit || {};
+            const ctco = aiSuggestion?.competitorAdjustedTCO || {};
+            const lo = aiSuggestion?.leaseOptimization || {};
+            const plans = Array.isArray(lo.plans) ? lo.plans : [];
             const kv = [
                 ['买断建议低价 (USD)', aiSuggestion?.buyoutPrice?.low],
                 ['买断建议高价 (USD)', aiSuggestion?.buyoutPrice?.high],
                 ['买断定价理由', aiSuggestion?.buyoutPrice?.reason],
                 ['', ''],
-                ['租赁首期 (USD)', aiSuggestion?.lease?.firstPay],
-                ['租赁月租 (USD)', aiSuggestion?.lease?.monthlyRent],
-                ['租赁押金月数', aiSuggestion?.lease?.depositMonths],
+                ['[ 竞品调整后 TCO ]', ''],
+                ['智谷天厨 FOB 裸价 (USD)', ctco.bareUSD],
+                ['到岸+服务调整后 (USD)', ctco.totalLandedUSD],
+                ['缺失服务折价 (USD)', ctco.servicePenaltyUSD],
+                ['说明', ctco.reason],
+                ['', ''],
+                ['[ 租赁主方案 ]', ''],
+                ['激活费 Activation (USD)', aiSuggestion?.lease?.activationFee],
+                ['月租金 (USD)', aiSuggestion?.lease?.monthlyRent],
                 ['首期月数', aiSuggestion?.lease?.firstPayMonths],
+                ['押金月数', aiSuggestion?.lease?.depositMonths],
                 ['最低租期 (月)', aiSuggestion?.lease?.minMonths],
                 ['提前退租费 (USD)', aiSuggestion?.lease?.earlyTerminationFee],
                 ['回本月份', aiSuggestion?.lease?.paybackMonths],
                 ['租赁理由', aiSuggestion?.lease?.reason],
                 ['', ''],
-                ['[ 建议的中美跨境提成分成 ]', ''],
-                ['美国成交方提成率', cs.usSalesPct],
-                ['中国引流方提成率', cs.chinaReferralPct],
-                ['中国引流占比', cs.chinaReferralAttachRate],
-                ['其他提成', cs.otherPct],
-                ['分成理由', cs.reason],
-                ['', ''],
-                ['现金流预警', aiSuggestion?.cashflowWarning],
-                ['风险 1', (aiSuggestion?.risks || [])[0]],
-                ['风险 2', (aiSuggestion?.risks || [])[1]],
-                ['风险 3', (aiSuggestion?.risks || [])[2]],
-                ['竞品差异化定价说理', aiSuggestion?.competitiveRationale]
+                ['[ 租赁现金流优化 - 诊断 ]', lo.problemDiagnosis || '']
             ];
+            plans.forEach((p, idx) => {
+                kv.push(['', '']);
+                const isReco = (lo.recommendedPlanIndex === idx) ? ' [推荐]' : '';
+                kv.push([`[ 方案 ${idx + 1}: ${p.name || ''}${isReco} ]`, '']);
+                kv.push(['  激活费 (USD)', p.activationFee]);
+                kv.push(['  月租金 (USD)', p.monthlyRent]);
+                kv.push(['  首期月数', p.firstPayMonths]);
+                kv.push(['  押金月数', p.depositMonths]);
+                kv.push(['  最低租期 (月)', p.minMonths]);
+                kv.push(['  提前退租费 (USD)', p.earlyTerminationFee]);
+                kv.push(['  预期每台首月净现金流 (USD)', p.expectedFirstMonthCashPerUnit]);
+                kv.push(['  回本月份', p.breakevenMonthPerUnit]);
+                kv.push(['  说明', p.rationale]);
+            });
+            kv.push(['', '']);
+            kv.push(['[ 跨境提成分成 ]', '']);
+            kv.push(['美国成交方提成率', cs.usSalesPct]);
+            kv.push(['中国引流方提成率', cs.chinaReferralPct]);
+            kv.push(['中国引流占比', cs.chinaReferralAttachRate]);
+            kv.push(['其他提成', cs.otherPct]);
+            kv.push(['分成理由', cs.reason]);
+            kv.push(['', '']);
+            kv.push(['现金流预警', aiSuggestion?.cashflowWarning]);
+            kv.push(['风险 1', (aiSuggestion?.risks || [])[0]]);
+            kv.push(['风险 2', (aiSuggestion?.risks || [])[1]]);
+            kv.push(['风险 3', (aiSuggestion?.risks || [])[2]]);
+            kv.push(['竞品差异化定价说理', aiSuggestion?.competitiveRationale]);
             s6.addRow(['字段', '内容']).eachCell(c => { c.fill = headFill; c.font = { bold: true }; });
             kv.forEach(([k, v]) => {
                 const r = s6.addRow([k, v == null ? '' : v]);

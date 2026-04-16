@@ -169,10 +169,8 @@
             <span class="spacer"></span>
             <label data-i18n="cashflowWindowLabel">现金流:</label>
             <select id="cashflowMonths" onchange="recomputeAndRender()">
-                <option value="12">12 月</option>
-                <option value="24" selected>24 月</option>
-                <option value="36">36 月</option>
-                <option value="60">60 月</option>
+                <option value="1">1 月</option>
+                <option value="12" selected>12 月</option>
             </select>
             <button onclick="openAiDrawer()" data-i18n="aiBtn">AI 建议售价</button>
             <button onclick="exportExcel()" data-i18n="exportFinanceBtn">导出 Excel</button>
@@ -208,6 +206,11 @@
                     <div class="field">
                         <label data-i18n="kpiMinMonths">最低租期(月)</label>
                         <input type="number" step="1" min="1" data-bind="lease.minMonths">
+                    </div>
+                    <div class="field">
+                        <label data-i18n="kpiActivationFee">激活费 (一次性不退)</label>
+                        <input type="number" step="1" data-money data-bind="lease.activationFeeUSD">
+                        <small data-i18n="kpiActivationFeeHint">建议 $1000-3000 改善首月现金流</small>
                     </div>
                     <div class="field">
                         <label data-i18n="kpiEtf">提前退租费</label>
@@ -556,6 +559,8 @@
         if (c.otherPct == null) c.otherPct = 0;
         delete c.salesPct;
         if (sc.lease && sc.lease.firstPayUSD != null) delete sc.lease.firstPayUSD;
+        if (!sc.lease) sc.lease = {};
+        if (sc.lease.activationFeeUSD == null) sc.lease.activationFeeUSD = 0;
         if (!sc.forecast) sc.forecast = {};
         if (!Array.isArray(sc.forecast.buyoutMonthlyUnits)) sc.forecast.buyoutMonthlyUnits = new Array(12).fill(1);
         if (!Array.isArray(sc.forecast.leaseMonthlyUnits))  sc.forecast.leaseMonthlyUnits  = new Array(12).fill(2);
@@ -701,9 +706,12 @@
     }
 
     function renderKpiTable(k) {
+        const firstMonthColor = k.leaseFirstMonthNetCashPerUnit >= 0 ? '#006600' : '#900';
         const rows = [
             ['单台买断毛利', fmtMoney(k.buyoutGrossPerUnit) + ' (' + (k.buyoutGrossPct * 100).toFixed(1) + '%)'],
+            ['租赁激活费 (不退)', fmtMoney(k.leaseActivationFee)],
             ['租赁首期现金流入', fmtMoney(k.leaseFirstPeriodCashIn)],
+            ['<span style="color:' + firstMonthColor + ';">每台首月净现金</span>', '<span style="color:' + firstMonthColor + ';">' + fmtMoney(k.leaseFirstMonthNetCashPerUnit) + '</span>'],
             ['租赁最低期收入 LTV', fmtMoney(k.leaseMinRevenue)],
             ['单台 LTV 净收益', fmtMoney(k.leaseLtvNet)],
             ['租赁回本月数', k.leasePaybackMonths + ' 月'],
@@ -785,34 +793,38 @@
     function renderOpex() {
         const t = document.getElementById('opexTable');
         const cats = scenario.opex?.categories || [];
-        let html = '<tr><th style="text-align:left;min-width:180px;">科目</th>';
-        for (let i = 1; i <= 12; i++) html += `<th>${i}月</th>`;
-        html += '<th>合计</th><th>操作</th></tr>';
-        const colSums = new Array(12).fill(0);
-        cats.forEach((cat, idx) => {
-            const months = cat.months || new Array(12).fill(0);
-            let rowSum = 0;
-            html += `<tr><td class="name">${escapeHtml(cat.name)}</td>`;
-            for (let i = 0; i < 12; i++) {
-                const usd = Number(months[i]) || 0;
-                rowSum += usd;
-                colSums[i] += usd;
-                const disp = displayCurrency === 'CNY' ? PsFinance.r2(usd * fxRate) : PsFinance.r2(usd);
-                html += `<td><input type="number" step="1" value="${disp}" onchange="updateOpex(${idx},${i},this.value)"></td>`;
-            }
-            html += `<td class="num"><b>${fmtMoney(rowSum)}</b></td>`;
-            html += `<td><button onclick="removeOpex(${idx})">删除</button></td></tr>`;
-        });
-        html += `<tr class="sum-row"><td class="name">月度小计</td>`;
+        let html = '<tr><th style="text-align:left;min-width:220px;">科目</th>'
+                 + '<th style="min-width:120px;">每月金额</th>'
+                 + '<th style="min-width:120px;">年度合计</th>'
+                 + '<th>操作</th></tr>';
         let grand = 0;
-        for (let i = 0; i < 12; i++) { grand += colSums[i]; html += `<td>${fmtMoney(colSums[i])}</td>`; }
-        html += `<td>${fmtMoney(grand)}</td><td></td></tr>`;
+        cats.forEach((cat, idx) => {
+            // Use month 0 as canonical monthly value; when user edits, copy to all 12 months.
+            const usdPerMonth = Number((cat.months || [])[0]) || 0;
+            const rowYearly = usdPerMonth * 12;
+            grand += rowYearly;
+            const disp = displayCurrency === 'CNY' ? PsFinance.r2(usdPerMonth * fxRate) : PsFinance.r2(usdPerMonth);
+            html += `<tr>
+                <td class="name">${escapeHtml(cat.name)}</td>
+                <td><input type="number" step="1" value="${disp}" onchange="updateOpex(${idx}, this.value)" style="width:110px;"></td>
+                <td class="num"><b>${fmtMoney(rowYearly)}</b></td>
+                <td><button onclick="removeOpex(${idx})">删除</button></td>
+            </tr>`;
+        });
+        html += `<tr class="sum-row"><td class="name">月度小计</td>`
+              + `<td class="num">${fmtMoney(grand / 12)}</td>`
+              + `<td class="num">${fmtMoney(grand)}</td>`
+              + `<td></td></tr>`;
         t.innerHTML = html;
     }
-    window.updateOpex = function (idx, monthIdx, val) {
+    // One monthly amount per row; internally broadcast to all 12 months so downstream
+    // math (which still uses cat.months[i] per-month) stays the same.
+    window.updateOpex = function (idx, val) {
         const n = Number(val) || 0;
         const usd = displayCurrency === 'CNY' ? n / fxRate : n;
-        scenario.opex.categories[idx].months[monthIdx] = usd;
+        const cat = scenario.opex.categories[idx];
+        if (!Array.isArray(cat.months)) cat.months = new Array(12).fill(0);
+        for (let i = 0; i < 12; i++) cat.months[i] = usd;
         recomputeAndRender();
     };
     window.removeOpex = function (idx) {
@@ -821,9 +833,13 @@
         renderOpex(); recomputeAndRender();
     };
     window.addOpexCategory = function () {
-        const name = prompt('新科目名（月度固定）');
+        const name = prompt('新科目名（每月固定金额）');
         if (!name) return;
-        scenario.opex.categories.push({ id: 'c_' + Date.now(), name, months: new Array(12).fill(0) });
+        const amtStr = prompt('每月金额 (' + displayCurrency + '):', '0');
+        if (amtStr == null) return;
+        const n = Number(amtStr) || 0;
+        const usd = displayCurrency === 'CNY' ? n / fxRate : n;
+        scenario.opex.categories.push({ id: 'c_' + Date.now(), name, months: new Array(12).fill(usd) });
         renderOpex(); recomputeAndRender();
     };
 
@@ -1194,30 +1210,112 @@
         const bp = s.buyoutPrice || {};
         const l = s.lease || {};
         const cs = s.commissionSplit || {};
+        const ctco = s.competitorAdjustedTCO || {};
+        const lo = s.leaseOptimization || {};
+        const plans = Array.isArray(lo.plans) ? lo.plans : [];
         const risks = s.risks || [];
         let html = '';
+
+        // 1. Buyout
         html += `<div class="ai-section"><h4>买断建议</h4>
             <p><b>区间：</b> ${PsFinance.fmtUSD(bp.low)} ~ ${PsFinance.fmtUSD(bp.high)}</p>
             <p>${escapeHtml(bp.reason || '')}</p></div>`;
-        html += `<div class="ai-section"><h4>租赁建议</h4>
-            <p><b>月租：</b> ${PsFinance.fmtUSD(l.monthlyRent)}</p>
-            <p><b>首期/押金：</b> 租 ${l.firstPayMonths || 0} 押 ${l.depositMonths || 0}</p>
-            <p><b>最低租期：</b> ${l.minMonths || 0} 月 · <b>ETF:</b> ${PsFinance.fmtUSD(l.earlyTerminationFee)}</p>
-            <p><b>回本月数：</b> ${l.paybackMonths || '?'} 月</p>
-            <p>${escapeHtml(l.reason || '')}</p></div>`;
+
+        // 2. Competitor TCO framing
+        if (ctco.totalLandedUSD != null || ctco.bareUSD != null) {
+            html += `<div class="ai-section"><h4>竞品 (智谷天厨) 真实 TCO</h4>
+                <p>FOB 裸价: <b>${PsFinance.fmtUSD(ctco.bareUSD)}</b></p>
+                <p>加上运费/关税/Sales Tax 到岸后: <b>${PsFinance.fmtUSD(ctco.totalLandedUSD)}</b></p>
+                <p>缺失服务折价 (无安装/售后/质保): <b>${PsFinance.fmtUSD(ctco.servicePenaltyUSD)}</b></p>
+                <p>${escapeHtml(ctco.reason || '')}</p></div>`;
+        }
+
+        // 3. Main lease recommendation
+        html += `<div class="ai-section"><h4>租赁主方案</h4>
+            <p><b>激活费:</b> ${PsFinance.fmtUSD(l.activationFee)} (不退) · <b>月租:</b> ${PsFinance.fmtUSD(l.monthlyRent)}</p>
+            <p><b>首期/押金:</b> 租 ${l.firstPayMonths || 0} 押 ${l.depositMonths || 0} · <b>最低租期:</b> ${l.minMonths || 0} 月</p>
+            <p><b>ETF:</b> ${PsFinance.fmtUSD(l.earlyTerminationFee)} · <b>回本:</b> ${l.paybackMonths || '?'} 月</p>
+            <p>${escapeHtml(l.reason || '')}</p>
+            <div style="text-align:right;"><button onclick="applyAiMainLease()">应用主方案</button></div></div>`;
+
+        // 4. Lease-optimization plans (three cards)
+        if (lo.problemDiagnosis || plans.length) {
+            html += `<div class="ai-section" style="background:#fff7d6;"><h4>租赁现金流优化 (三套方案)</h4>`;
+            if (lo.problemDiagnosis) html += `<p><b>诊断:</b> ${escapeHtml(lo.problemDiagnosis)}</p>`;
+            plans.forEach((p, idx) => {
+                const isReco = lo.recommendedPlanIndex === idx;
+                const cashColor = (Number(p.expectedFirstMonthCashPerUnit) || 0) >= 0 ? '#006600' : '#900';
+                html += `<div style="border:1px solid #888;padding:6px;margin-top:6px;background:${isReco?'#dfffdf':'#fff'};">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <b>方案 ${idx+1}: ${escapeHtml(p.name||'')}${isReco?' (推荐)':''}</b>
+                        <button onclick="applyAiPlan(${idx})">采用此方案</button>
+                    </div>
+                    <div style="font-size:11px;margin-top:2px;">激活费 <b>${PsFinance.fmtUSD(p.activationFee)}</b> · 月租 <b>${PsFinance.fmtUSD(p.monthlyRent)}</b> · 租${p.firstPayMonths}押${p.depositMonths} · 最低 ${p.minMonths} 月 · ETF ${PsFinance.fmtUSD(p.earlyTerminationFee)}</div>
+                    <div style="font-size:11px;margin-top:2px;">每台首月净现金: <b style="color:${cashColor};">${PsFinance.fmtUSD(p.expectedFirstMonthCashPerUnit)}</b> · 回本: <b>${p.breakevenMonthPerUnit||'?'} 月</b></div>
+                    <div style="font-size:11px;color:#333;margin-top:2px;">${escapeHtml(p.rationale||'')}</div>
+                </div>`;
+            });
+            html += `</div>`;
+        }
+
+        // 5. Commission split
         if (cs.usSalesPct != null || cs.chinaReferralPct != null) {
             const eff = (Number(cs.usSalesPct) || 0) + (Number(cs.chinaReferralPct) || 0) * (Number(cs.chinaReferralAttachRate) || 0) + (Number(cs.otherPct) || 0);
             html += `<div class="ai-section"><h4>中美跨境提成分成</h4>
                 <p>美国成交方 <b>${((Number(cs.usSalesPct) || 0) * 100).toFixed(2)}%</b> | 中国引流方 <b>${((Number(cs.chinaReferralPct) || 0) * 100).toFixed(2)}%</b> | 引流占比 <b>${((Number(cs.chinaReferralAttachRate) || 0) * 100).toFixed(1)}%</b> | 其他 <b>${((Number(cs.otherPct) || 0) * 100).toFixed(2)}%</b></p>
                 <p><b>有效综合：</b> ${(eff * 100).toFixed(2)}%</p>
-                <p>${escapeHtml(cs.reason || '')}</p></div>`;
+                <p>${escapeHtml(cs.reason || '')}</p>
+                <div style="text-align:right;"><button onclick="applyAiCommission()">应用分成</button></div></div>`;
         }
+
+        // 6. Cashflow warning / risks / competitive rationale
         if (s.cashflowWarning) html += `<div class="ai-section"><h4>现金流预警</h4><p>${escapeHtml(s.cashflowWarning)}</p></div>`;
         if (risks.length) html += `<div class="ai-section"><h4>风险点</h4><ul>${risks.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul></div>`;
         if (s.competitiveRationale) html += `<div class="ai-section"><h4>竞品差异化说理</h4><p>${escapeHtml(s.competitiveRationale)}</p></div>`;
-        html += `<div style="padding:6px;"><button onclick="applyAiSuggestion()" style="width:100%;">应用到当前场景</button></div>`;
+
+        html += `<div style="padding:6px;"><button onclick="applyAiSuggestion()" style="width:100%;">应用全部 (买断+主租赁+分成)</button></div>`;
         box.innerHTML = html;
     }
+
+    // Apply a specific plan from leaseOptimization.plans[]
+    window.applyAiPlan = function (idx) {
+        if (!lastAiSuggestion) return;
+        const p = (lastAiSuggestion.leaseOptimization?.plans || [])[idx];
+        if (!p) return;
+        if (p.activationFee != null)         scenario.lease.activationFeeUSD        = Number(p.activationFee);
+        if (p.monthlyRent != null)           scenario.lease.monthlyRentUSD          = Number(p.monthlyRent);
+        if (p.firstPayMonths != null)        scenario.lease.firstPayMonths          = Number(p.firstPayMonths);
+        if (p.depositMonths != null)         scenario.lease.depositMonths           = Number(p.depositMonths);
+        if (p.minMonths != null)             scenario.lease.minMonths               = Number(p.minMonths);
+        if (p.earlyTerminationFee != null)   scenario.lease.earlyTerminationFeeUSD  = Number(p.earlyTerminationFee);
+        bindAll(); recomputeAndRender();
+        alert('已采用方案 ' + (idx + 1) + '，记得点「保存」持久化到云端。');
+    };
+
+    window.applyAiMainLease = function () {
+        if (!lastAiSuggestion?.lease) return;
+        const l = lastAiSuggestion.lease;
+        if (l.activationFee != null)       scenario.lease.activationFeeUSD       = Number(l.activationFee);
+        if (l.monthlyRent != null)         scenario.lease.monthlyRentUSD         = Number(l.monthlyRent);
+        if (l.firstPayMonths != null)      scenario.lease.firstPayMonths         = Number(l.firstPayMonths);
+        if (l.depositMonths != null)       scenario.lease.depositMonths          = Number(l.depositMonths);
+        if (l.minMonths != null)           scenario.lease.minMonths              = Number(l.minMonths);
+        if (l.earlyTerminationFee != null) scenario.lease.earlyTerminationFeeUSD = Number(l.earlyTerminationFee);
+        bindAll(); recomputeAndRender();
+        alert('已应用 AI 主租赁方案。');
+    };
+
+    window.applyAiCommission = function () {
+        if (!lastAiSuggestion?.commissionSplit) return;
+        const cs = lastAiSuggestion.commissionSplit;
+        if (!scenario.product.commissions) scenario.product.commissions = {};
+        if (cs.usSalesPct != null)             scenario.product.commissions.usSalesPct             = Number(cs.usSalesPct);
+        if (cs.chinaReferralPct != null)       scenario.product.commissions.chinaReferralPct       = Number(cs.chinaReferralPct);
+        if (cs.chinaReferralAttachRate != null) scenario.product.commissions.chinaReferralAttachRate = Number(cs.chinaReferralAttachRate);
+        if (cs.otherPct != null)               scenario.product.commissions.otherPct               = Number(cs.otherPct);
+        bindAll(); recomputeAndRender();
+        alert('已应用 AI 提成分成建议。');
+    };
 
     window.applyAiSuggestion = function () {
         if (!lastAiSuggestion) return;
@@ -1228,6 +1326,7 @@
         const high = Number(bp.high) || 0;
         const midPrice = (low && high) ? (low + high) / 2 : (low || high || scenario.buyout.priceUSD);
         scenario.buyout.priceUSD = Math.round(midPrice || scenario.buyout.priceUSD);
+        if (l.activationFee != null) scenario.lease.activationFeeUSD = Number(l.activationFee);
         if (l.monthlyRent != null) scenario.lease.monthlyRentUSD = Number(l.monthlyRent);
         if (l.depositMonths != null) scenario.lease.depositMonths = Number(l.depositMonths);
         if (l.firstPayMonths != null) scenario.lease.firstPayMonths = Number(l.firstPayMonths);
@@ -1239,7 +1338,7 @@
         if (cs.chinaReferralAttachRate != null) scenario.product.commissions.chinaReferralAttachRate = Number(cs.chinaReferralAttachRate);
         if (cs.otherPct != null) scenario.product.commissions.otherPct = Number(cs.otherPct);
         bindAll(); recomputeAndRender();
-        alert('已应用 AI 建议，记得点保存持久化到云端。');
+        alert('已应用 AI 全部建议（买断+主租赁+分成），记得点保存持久化到云端。');
     };
 
     function logout() {
