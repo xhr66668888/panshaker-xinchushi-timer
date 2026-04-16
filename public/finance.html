@@ -301,6 +301,13 @@
                         </div>
                     </div>
                     <div class="alert-light">
+                        <span class="light-dot light-gray" id="lightLeaseUnitCash"></span>
+                        <div>
+                            <div class="alert-title" data-i18n="alertLeaseUnitCash">租赁单台首月</div>
+                            <div class="alert-sub" id="lightLeaseUnitCashSub">--</div>
+                        </div>
+                    </div>
+                    <div class="alert-light">
                         <span class="light-dot light-gray" id="lightLease"></span>
                         <div>
                             <div class="alert-title" data-i18n="alertLease">租赁 LTV</div>
@@ -542,12 +549,12 @@
 <div class="ai-drawer" id="aiDrawer">
     <div class="window" style="flex:1;display:flex;flex-direction:column;">
         <div class="title-bar">
-            <div class="title-bar-text" data-i18n="aiTitle">AI 建议售价 (GLM-4.5-Air)</div>
+            <div class="title-bar-text" data-i18n="aiTitle">AI 建议售价 (GLM-5.1 旗舰)</div>
             <div class="title-bar-controls"><button aria-label="Close" onclick="closeAiDrawer()"></button></div>
         </div>
         <div class="window-body" id="aiBody">
             <div style="padding:6px;">
-                <p style="font-size:12px;" data-i18n="aiIntro">基于当前完整场景（成本/价格/税率/租赁政策/中美跨境提成/销量预测）与竞品信息，调用智谱 GLM-4.5-Air 生成推荐定价。</p>
+                <p style="font-size:12px;" data-i18n="aiIntro">基于当前完整场景（成本/价格/税率/租赁政策/中美跨境提成/销量预测）与竞品信息，调用智谱 GLM-5.1 旗舰模型生成推荐定价。旗舰模型推理更深，通常 20-90 秒返回。</p>
                 <button onclick="callAi()" id="aiCallBtn" style="width:100%;padding:6px;" data-i18n="aiCallBtn">调用 AI 生成建议</button>
                 <div id="aiStatus" style="margin-top:6px;font-size:12px;color:#003366;"></div>
             </div>
@@ -973,10 +980,12 @@
         };
         const b = res.pnl.perUnit.buyout;
         const l = res.pnl.perUnit.lease;
-        setLight('lightBuyout', 'lightBuyoutSub', b.grossPerUnit > 0, '单台毛利 ' + fmtMoney(b.grossPerUnit));
-        setLight('lightLease',  'lightLeaseSub',  l.ltvNet > 0,      'LTV 净 ' + fmtMoney(l.ltvNet));
+        setLight('lightBuyout',        'lightBuyoutSub',        b.grossPerUnit > 0,          '单台毛利 ' + fmtMoney(b.grossPerUnit));
+        // Per-unit first-month net cash (激活费+首期租金+押金 − 单台前期变动成本)
+        setLight('lightLeaseUnitCash', 'lightLeaseUnitCashSub', l.firstMonthNetCashPerUnit >= 0, '首月净现金 ' + fmtMoney(l.firstMonthNetCashPerUnit));
+        setLight('lightLease',         'lightLeaseSub',         l.ltvNet > 0,                'LTV 净 ' + fmtMoney(l.ltvNet));
         const firstNeg = res.cashflow.find(r => r.net < 0);
-        setLight('lightCash', 'lightCashSub', !firstNeg, firstNeg ? '第 ' + firstNeg.m + ' 月 ' + fmtMoney(firstNeg.net) : '无负值');
+        setLight('lightCash',          'lightCashSub',          !firstNeg,                   firstNeg ? '第 ' + firstNeg.m + ' 月 ' + fmtMoney(firstNeg.net) : '无负值');
     }
 
     function fmtCell(r) {
@@ -1427,7 +1436,7 @@
         const result = document.getElementById('aiResult');
         btn.disabled = true; result.innerHTML = '';
         const t0 = Date.now();
-        let tick = setInterval(() => { status.textContent = '调用 GLM-4.5-Air 中 (已 ' + Math.floor((Date.now() - t0) / 1000) + 's)'; }, 500);
+        let tick = setInterval(() => { status.textContent = '调用 GLM-5.1 旗舰模型中 (已 ' + Math.floor((Date.now() - t0) / 1000) + 's，通常 20-90 秒)'; }, 500);
         try {
             const r = await fetch('/api/finance/ai-suggest', {
                 method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },

@@ -8,8 +8,8 @@ const port = process.env.PORT || 5000;
 // Finance module: Zhipu GLM API key (per user requirement: hardcoded for out-of-box deploy)
 const GLM_API_KEY = 'af5c0dee3b10490d9d6003cd4f33813d.YI88kpKxhBroZTQ7';
 const GLM_ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
-const GLM_MODEL = process.env.GLM_MODEL || 'glm-4.5-air';
-const GLM_TIMEOUT_MS = 60000; // 1 min is plenty for glm-4.5-air (non-reasoning, ~5s typical)
+const GLM_MODEL = process.env.GLM_MODEL || 'glm-5.1';
+const GLM_TIMEOUT_MS = 120000; // flagship GLM-5.1 can take up to 60-90s for full prompts
 const FX_ENDPOINT = 'https://open.er-api.com/v6/latest/USD';
 const ZIPPO_ENDPOINT = 'https://api.zippopotam.us/us/';
 
