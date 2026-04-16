@@ -98,9 +98,25 @@
             box-shadow: -4px 0 10px rgba(0,0,0,0.3);
             transform: translateX(100%); transition: transform 0.25s ease;
             z-index: 900; display: flex; flex-direction: column;
+            height: 100vh;        /* explicit height so nested flex scroll works */
+            overflow: hidden;     /* scroll is the inner .window-body's job */
         }
         .ai-drawer.open { transform: translateX(0); }
-        .ai-drawer .window-body { overflow-y: auto; flex: 1; padding: 8px; }
+        .ai-drawer > .window {
+            flex: 1 1 auto;
+            min-height: 0;        /* critical for nested flex-overflow */
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .ai-drawer .window-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 8px;
+            -webkit-overflow-scrolling: touch;
+        }
         .ai-section { padding: 6px; margin-bottom: 6px; background: #fff; border: 1px inset #dfdfdf; }
         .ai-section h4 { margin: 0 0 4px 0; font-size: 13px; color: #003366; }
         .ai-section p { margin: 2px 0; font-size: 12px; white-space: pre-wrap; }
