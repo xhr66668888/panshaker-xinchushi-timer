@@ -8,7 +8,8 @@ const port = process.env.PORT || 5000;
 // Finance module: Zhipu GLM API key (per user requirement: hardcoded for out-of-box deploy)
 const GLM_API_KEY = 'af5c0dee3b10490d9d6003cd4f33813d.YI88kpKxhBroZTQ7';
 const GLM_ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
-const GLM_MODEL = 'glm-4.6v';
+const GLM_MODEL = process.env.GLM_MODEL || 'glm-4.6v';
+const GLM_TIMEOUT_MS = 150000; // 2.5 min — GLM-4.6V is a reasoning model with internal CoT tokens
 const FX_ENDPOINT = 'https://open.er-api.com/v6/latest/USD';
 
 // In-memory FX cache (1 hour)
@@ -752,30 +753,44 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
     if (!scenario || typeof scenario !== 'object') return jsonErr(res, 400, '需要提交 scenario JSON');
 
     const systemPrompt = [
-        '你是 Panshaker 美国分公司（Delaware C-Corp）的资深财务与定价顾问，服务于炒菜机器人 B2B 商用市场。',
-        '产品：芯厨师 X7 炒菜机器人，官网 panshaker.com；中国零售价 CNY 38800–50000，中国分公司销售提成 4%；中国分公司给美国分公司的到岸前成本价 CNY 27900/台（未含美国关税、海运、美国内陆、仓储）。',
-        '主要竞品：智谷天厨，美国市场报价 USD 11000，FOB 中国港口，不含任何关税与运费。',
-        '目标客户：美国中小型餐饮连锁、云厨房、校园/医院食堂、食品工厂，决策周期 30–60 天。',
-        '美国市场特性：销售税（Sales Tax）由目的州征收，属代收代缴，不吃公司收入；联邦企业所得税 21%；Delaware 州企业所得税 8.7% 并有 Franchise Tax。雇主负担 payroll 约 9.4%（FICA 7.65% + FUTA + SUTA）。',
-        '跨境提成机制（中美 TOB 行业惯例）：当中国分公司的销售/流量团队把线索推给美国团队后由美国成交，提成需要中美双方分摊。行业典型做法是总池 5% 左右，按 40%/60% 分成给 CN 引流方 / US 成交方；若 attach rate（推荐占比）偏低可以调到 50/50；必须把 CN 端的分成作为美国 P&L 上一条独立的变动成本项，不能漏算。',
-        '请基于用户给出的完整场景 JSON（含 product.commissions 里的 usSalesPct / chinaReferralPct / chinaReferralAttachRate / otherPct）：',
-        '1. 单台变动成本（含设备成本、海运、关税、美国内陆、仓储、安装培训、广告、各路提成）。有效提成率 = usSalesPct + chinaReferralPct × chinaReferralAttachRate + otherPct，务必把 CN 跨境分成单独标出来。',
-        '2. 买断情形：考虑目标毛利 35–50% 并参考竞品定位，给出推荐售价区间（low/high USD）与定位说明。',
-        '3. 租赁情形：设计 firstPay（USD）、monthlyRent（USD）、deposit（按月数，说明"租 X 押 Y"含义）、minMonths、early-termination fee（USD）。必须证明最低租期内累计 LTV 显著 > 单台变动成本 + 设备折旧；给出 payback period（月数）。',
-        '4. 基于 monthlyUnits 预测，指出何时月度现金流可能转负并给出对策。',
-        '5. 建议的中美跨境分成结构（CN/US 百分比以及触发条件），评价当前 attach rate 是否合理。',
-        '6. 风险点 3 条，竞品差异化定价说理 1 段（含高端定位 vs 价格战选择）。',
-        '严格只输出 JSON（不要任何 markdown、不要解释文字包裹），schema：{',
-        '  "buyoutPrice": {"low": number, "high": number, "reason": string},',
-        '  "lease": {"firstPay": number, "monthlyRent": number, "depositMonths": number, "firstPayMonths": number, "minMonths": number, "earlyTerminationFee": number, "paybackMonths": number, "reason": string},',
-        '  "commissionSplit": {"usSalesPct": number, "chinaReferralPct": number, "chinaReferralAttachRate": number, "otherPct": number, "reason": string},',
-        '  "cashflowWarning": string,',
-        '  "risks": [string, string, string],',
-        '  "competitiveRationale": string',
-        '}'
+        '你是 Panshaker 美国分公司（Delaware C-Corp，炒菜机器人 B2B）资深定价顾问。',
+        '产品：芯厨师 X7，中国零售 CNY 38800-50000，中国销售提成 4%；到岸前成本 CNY 27900/台（未含美国关税/海运/内陆/仓储）。',
+        '竞品：智谷天厨，美国报价 USD 11000，FOB 中国港口（不含关税运费）。',
+        '美国市场：Sales Tax 由目的州代收代缴不吃收入；联邦企业税 21%；DE 州 8.7% + Franchise Tax；雇主 payroll 约 9.4%。',
+        '跨境提成机制：中国团队推荐线索→美国成交，提成需中美分成。行业惯例总池 ~5%，CN 引流方 40% / US 成交方 60%；必须把 CN 分成作为美国 P&L 独立变动成本，有效提成率 = usSalesPct + chinaReferralPct × chinaReferralAttachRate + otherPct。',
+        '目标客户：美国中小餐饮连锁、云厨房、校园/医院食堂、食品工厂。',
+        '任务：基于精简场景 JSON，综合考虑变动成本、目标毛利 35-50%、竞品定位，生成：(1) 买断售价区间 low/high；(2) 租赁参数 firstPay/monthlyRent/deposit/minMonths/early-term fee/payback，最低租期 LTV 必须 > 变动成本+折旧；(3) 建议的中美提成分成 commissionSplit（各 pct + attach rate）；(4) 现金流转负月份预警；(5) 3 条风险；(6) 与竞品差异化定价说理 1 段。',
+        '严格只输出 1 个 JSON 对象，不要 markdown、不要```代码围栏、不要解释文字。schema：',
+        '{"buyoutPrice":{"low":number,"high":number,"reason":string},',
+        '"lease":{"firstPay":number,"monthlyRent":number,"depositMonths":number,"firstPayMonths":number,"minMonths":number,"earlyTerminationFee":number,"paybackMonths":number,"reason":string},',
+        '"commissionSplit":{"usSalesPct":number,"chinaReferralPct":number,"chinaReferralAttachRate":number,"otherPct":number,"reason":string},',
+        '"cashflowWarning":string,"risks":[string,string,string],"competitiveRationale":string}'
     ].join('\n');
 
+    // Strip non-essential fields from scenario to reduce prompt tokens and latency.
+    const lean = {
+        meta: scenario.meta,
+        product: scenario.product,
+        assumptions: scenario.assumptions,
+        buyout: scenario.buyout,
+        lease: scenario.lease,
+        tax: scenario.tax,
+        customCosts: scenario.customCosts,
+        // Opex: only average monthly fixed, not full 12-month matrix
+        opexMonthlyAvgUSD: (() => {
+            const cats = scenario.opex?.categories || [];
+            let total = 0;
+            for (const c of cats) {
+                const arr = c.months || [];
+                for (const v of arr) total += Number(v) || 0;
+            }
+            return Math.round(total / 12);
+        })(),
+        forecastFirst12Months: (scenario.forecast?.monthlyUnits || []).slice(0, 12)
+    };
+
     try {
+        const started = Date.now();
         const resp = await fetch(GLM_ENDPOINT, {
             method: 'POST',
             headers: {
@@ -784,25 +799,28 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
             },
             body: JSON.stringify({
                 model: GLM_MODEL,
-                temperature: 0.3,
-                response_format: { type: 'json_object' },
+                temperature: 0.2,
+                max_tokens: 3500,
                 messages: [
                     { role: 'system', content: systemPrompt },
-                    { role: 'user', content: '当前场景：\n```json\n' + JSON.stringify(scenario, null, 2) + '\n```\n请严格按照 schema 输出 JSON。' }
+                    { role: 'user', content: '当前场景(精简): ' + JSON.stringify(lean) + '\n请严格按 schema 输出 JSON，不要任何额外文字，不要 markdown 围栏。' }
                 ]
             }),
-            signal: AbortSignal.timeout(45000)
+            signal: AbortSignal.timeout(GLM_TIMEOUT_MS)
         });
         const text = await resp.text();
+        const elapsed = Date.now() - started;
         if (!resp.ok) {
             console.error('GLM error:', resp.status, text.slice(0, 500));
-            return res.status(502).json({ error: 'AI 服务调用失败', status: resp.status, detail: text.slice(0, 500) });
+            return res.status(502).json({ error: 'AI 服务调用失败', status: resp.status, elapsedMs: elapsed, detail: text.slice(0, 500) });
         }
         let payload;
         try { payload = JSON.parse(text); } catch (e) {
-            return res.status(502).json({ error: 'AI 返回解析失败', raw: text.slice(0, 800) });
+            return res.status(502).json({ error: 'AI 返回解析失败', elapsedMs: elapsed, raw: text.slice(0, 800) });
         }
-        const content = payload?.choices?.[0]?.message?.content || '';
+        let content = payload?.choices?.[0]?.message?.content || '';
+        // The vision model sometimes wraps JSON in ```json ... ``` even when told not to.
+        content = content.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
         let suggestion = null;
         try {
             suggestion = JSON.parse(content);
@@ -811,12 +829,13 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
             if (m) { try { suggestion = JSON.parse(m[0]); } catch (_) {} }
         }
         if (!suggestion) {
-            return res.status(502).json({ error: 'AI 返回非 JSON', raw: content.slice(0, 800) });
+            return res.status(502).json({ error: 'AI 返回非 JSON', elapsedMs: elapsed, raw: content.slice(0, 800) });
         }
-        res.json({ success: true, suggestion, raw: content });
+        res.json({ success: true, elapsedMs: elapsed, model: GLM_MODEL, usage: payload?.usage, suggestion, raw: content });
     } catch (err) {
         console.error('GLM fetch error:', err);
-        res.status(502).json({ error: 'AI 请求异常', detail: String(err.message || err) });
+        const msg = String(err?.name === 'TimeoutError' || /abort|timeout/i.test(String(err?.message)) ? 'AI 推理超时，请重试或减少场景复杂度' : (err?.message || err));
+        res.status(502).json({ error: 'AI 请求异常', detail: msg });
     }
 });
 

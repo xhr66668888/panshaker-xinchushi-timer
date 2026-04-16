@@ -1192,26 +1192,69 @@
         const status = document.getElementById('aiStatus');
         const result = document.getElementById('aiResult');
         btn.disabled = true;
-        status.textContent = '调用 GLM-4.6V 中，请稍候（最长 45 秒）...';
         result.innerHTML = '';
+
+        // Elapsed-time ticker: GLM-4.6V is a reasoning model, 30–90 sec is normal.
+        const t0 = Date.now();
+        let tick = null;
+        const updateStatus = () => {
+            const s = Math.floor((Date.now() - t0) / 1000);
+            status.textContent = `调用 GLM-4.6V 中（已 ${s} 秒，推理模型通常 30~90 秒）...`;
+        };
+        updateStatus();
+        tick = setInterval(updateStatus, 1000);
+
+        let rawResponse = '';
+        let httpStatus = 0;
         try {
             const r = await fetch('/api/finance/ai-suggest', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                 body: JSON.stringify(scenario)
             });
-            const j = await r.json();
+            httpStatus = r.status;
+            rawResponse = await r.text();
+            clearInterval(tick); tick = null;
+            const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+
+            // Safe parse: if gateway/proxy returns HTML, we still show a clear message.
+            let j = null;
+            try { j = JSON.parse(rawResponse); } catch (_) {}
+
+            if (!j) {
+                status.textContent = '';
+                const preview = rawResponse.slice(0, 500).replace(/</g, '&lt;');
+                result.innerHTML = `<div class="ai-section" style="color:#900;">
+                    <h4>服务端返回非 JSON (HTTP ${httpStatus}, ${elapsed}s)</h4>
+                    <p>通常是上游网关超时或中断。请稍等片刻重试；若多次失败，可减少 customCosts 数量或把销量预测控制在 12 月以内。</p>
+                    <p style="font-family:monospace;font-size:11px;background:#fff;padding:4px;border:1px inset #dfdfdf;white-space:pre-wrap;">${preview || '(空)'}</p>
+                </div>`;
+                return;
+            }
+
             if (!r.ok || !j.suggestion) {
                 status.textContent = '';
-                result.innerHTML = `<div class="ai-section" style="color:#900;"><h4>调用失败</h4><p>${escapeHtml(j.error || 'unknown')}</p>${j.detail?`<p>${escapeHtml(String(j.detail).slice(0,400))}</p>`:''}</div>`;
+                result.innerHTML = `<div class="ai-section" style="color:#900;">
+                    <h4>调用失败 (HTTP ${httpStatus}, ${elapsed}s)</h4>
+                    <p>${escapeHtml(j.error || 'unknown')}</p>
+                    ${j.detail ? `<p>${escapeHtml(String(j.detail).slice(0, 400))}</p>` : ''}
+                    ${j.raw ? `<p style="font-family:monospace;font-size:11px;background:#fff;padding:4px;border:1px inset #dfdfdf;white-space:pre-wrap;">${escapeHtml(String(j.raw).slice(0, 500))}</p>` : ''}
+                </div>`;
                 return;
             }
             lastAiSuggestion = j.suggestion;
             renderAiSuggestion(j.suggestion);
-            status.textContent = '已获取建议';
+            const usage = j.usage ? ` · tokens ${j.usage.total_tokens} (reasoning ${j.usage?.completion_tokens_details?.reasoning_tokens || 0})` : '';
+            status.textContent = `已获取建议 · 耗时 ${elapsed}s${usage}`;
         } catch (e) {
+            if (tick) clearInterval(tick);
             status.textContent = '';
-            result.innerHTML = `<div class="ai-section" style="color:#900;"><h4>网络错误</h4><p>${escapeHtml(e.message||e)}</p></div>`;
+            const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+            result.innerHTML = `<div class="ai-section" style="color:#900;">
+                <h4>网络异常 (${elapsed}s)</h4>
+                <p>${escapeHtml(e.message || e)}</p>
+                <p>建议：检查网络、稍后重试；或查看浏览器 DevTools Network 面板看真实响应。</p>
+            </div>`;
         } finally {
             btn.disabled = false;
         }
