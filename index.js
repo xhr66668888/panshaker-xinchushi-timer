@@ -888,16 +888,31 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
         }
     };
 
-    // Azure App Service has a 230s front-end idle timeout; we proactively flush
-    // a single space byte every ~15s while waiting on GLM. The browser's fetch
-    // still buffers the whole response, and JSON.parse handles leading
-    // whitespace gracefully, so the final payload round-trips cleanly.
-    res.setHeader('Content-Type', 'application/json');
+    // Keep every intermediate hop alive while GLM thinks for 60-180 seconds.
+    // Some corporate proxies / Azure front-end cut idle TCP after ~30-60 s
+    // even when data is "about" to flow. We therefore:
+    //   1. Flush response headers BEFORE awaiting any upstream call.
+    //   2. Write an initial newline right away so the client's TCP stack
+    //      sees bytes immediately.
+    //   3. Emit a newline heartbeat every 5 s (not 15 s) — small enough to
+    //      slip under any aggressive intermediate timeout.
+    //   4. Force a socket uncork after each write in case Express buffers.
+    // Browsers and JSON.parse ignore leading whitespace/newlines, so the
+    // final JSON payload still round-trips cleanly.
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
-    const heartbeat = setInterval(() => {
-        try { res.write(' '); if (res.flush) res.flush(); } catch (_) {}
-    }, 15000);
+    const writeBeat = () => {
+        try {
+            res.write('\n');
+            if (res.socket && !res.socket.destroyed) {
+                res.socket.uncork && res.socket.uncork();
+            }
+        } catch (_) {}
+    };
+    writeBeat(); // prime the connection with an immediate byte
+    const heartbeat = setInterval(writeBeat, 5000);
     req.on('close', () => clearInterval(heartbeat));
     const finish = (code, body) => {
         clearInterval(heartbeat);
