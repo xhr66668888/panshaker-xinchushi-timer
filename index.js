@@ -8,9 +8,10 @@ const port = process.env.PORT || 5000;
 // Finance module: Zhipu GLM API key (per user requirement: hardcoded for out-of-box deploy)
 const GLM_API_KEY = 'af5c0dee3b10490d9d6003cd4f33813d.YI88kpKxhBroZTQ7';
 const GLM_ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
-const GLM_MODEL = process.env.GLM_MODEL || 'glm-4.6v';
-const GLM_TIMEOUT_MS = 150000; // 2.5 min — GLM-4.6V is a reasoning model with internal CoT tokens
+const GLM_MODEL = process.env.GLM_MODEL || 'glm-4.5-air';
+const GLM_TIMEOUT_MS = 60000; // 1 min is plenty for glm-4.5-air (non-reasoning, ~5s typical)
 const FX_ENDPOINT = 'https://open.er-api.com/v6/latest/USD';
+const ZIPPO_ENDPOINT = 'https://api.zippopotam.us/us/';
 
 // In-memory FX cache (1 hour)
 let _fxCache = { ts: 0, data: null };
@@ -72,15 +73,21 @@ const db = new sqlite3.Database('work_records.db', (err) => {
             )
         `);
 
-        // Seed the default Delaware baseline scenario (only once)
-        db.get('SELECT COUNT(*) as cnt FROM FinanceScenarios', [], (err, row) => {
-            if (err || !row || row.cnt > 0) return;
-            const baseline = buildBaselineScenario();
-            db.run(
-                'INSERT INTO FinanceScenarios (Name, IsDefault, DataJson) VALUES (?, 1, ?)',
-                ['\u57fa\u7ebf-Delaware', JSON.stringify(baseline)],
-                (e) => { if (e) console.error('Seed scenario error:', e); }
-            );
+        // Seed default scenarios: "基线-Delaware" + "老版excel"
+        db.get('SELECT Name FROM FinanceScenarios', [], (err, row) => {
+            if (err) return;
+            const insertIfMissing = (name, isDefault, data) => {
+                db.get('SELECT Id FROM FinanceScenarios WHERE Name = ?', [name], (e, r) => {
+                    if (e || r) return;
+                    db.run(
+                        'INSERT INTO FinanceScenarios (Name, IsDefault, DataJson) VALUES (?, ?, ?)',
+                        [name, isDefault ? 1 : 0, JSON.stringify(data)],
+                        (er) => { if (er) console.error('Seed scenario error:', er); }
+                    );
+                });
+            };
+            insertIfMissing('\u57fa\u7ebf-Delaware', 1, buildBaselineScenario());
+            insertIfMissing('\u8001\u7248excel', 0, buildLegacyExcelScenario());
         });
     }
 });
@@ -119,22 +126,28 @@ const US_STATE_CORP_TAX = {
     DC: 0.0825
 };
 
+// Product physical metadata for the 芯厨师 X7-2001 (used by ocean freight estimator).
+const X7_DIMENSIONS = {
+    crated: { lengthCm: 102, widthCm: 90, heightCm: 170 },
+    bare:   { lengthCm: 94,  widthCm: 78, heightCm: 154 },
+    cbm: 1.56,
+    weightKg: 246
+};
+
 function buildBaselineScenario() {
     const r = (n) => Math.round(n);
+    const months12 = (v) => new Array(12).fill(v);
     return {
-        version: 1,
+        version: 2,
         meta: {
-            baseCurrency: 'USD',
-            fxRate: 7.2,
-            fxUpdatedAt: null,
             companyState: 'DE',
-            destinationState: 'CA',
-            cashflowMonths: 24,
+            zipCode: '19801',
             notes: ''
         },
         product: {
-            name: '\u828f\u53a8\u5e08 X7',
+            name: '\u828f\u53a8\u5e08 X7-2001',
             unitCostUSD: r(27900 / 7.2),
+            dimensions: X7_DIMENSIONS,
             landed: {
                 oceanFreightUSD: 180,
                 importDutyPct: 0.0,
@@ -146,16 +159,6 @@ function buildBaselineScenario() {
             warrantyUSD: 150,
             shippingToCustomerUSD: 250,
             advertisingUSD: 400,
-            usefulLifeMonths: 60,
-            // Cross-border TOB commission split.
-            //   usSalesPct: commission paid to the US closer team (always applied)
-            //   chinaReferralPct: commission paid to the CN lead-gen/referral team
-            //     (applied only on deals that originated from the China branch,
-            //      weighted by chinaReferralAttachRate)
-            //   chinaReferralAttachRate: share of US deals that originated from CN leads
-            //   otherPct: other bonuses / SPIFF
-            // Industry norm for US-CN cross-border TOB hardware sales:
-            //   total pool 5%, split 40% CN / 60% US, attach rate 30%.
             commissions: {
                 usSalesPct: 0.03,
                 chinaReferralPct: 0.02,
@@ -163,22 +166,12 @@ function buildBaselineScenario() {
                 otherPct: 0.01
             }
         },
-        assumptions: {
-            totalLeads: 500,
-            conversionRate: 0.05,
-            costPerLeadUSD: 50,
-            unitsPerCustomer: 1,
-            leaseRatio: 0.6
-        },
-        buyout: {
-            priceUSD: 15000
-        },
+        buyout: { priceUSD: 15000 },
         lease: {
-            firstPayUSD: 2000,
             monthlyRentUSD: 599,
-            firstPayMonths: 1,
-            depositMonths: 2,
-            minMonths: 24,
+            firstPayMonths: 2,
+            depositMonths: 1,
+            minMonths: 12,
             earlyTerminationFeeUSD: 2000
         },
         tax: {
@@ -194,28 +187,93 @@ function buildBaselineScenario() {
         },
         opex: {
             categories: [
-                { id: 'salesSalary',  name: '\u9500\u552e\u4eba\u5458\u85aa\u916c',           months: new Array(12).fill(8000)  },
-                { id: 'mgmtSalary',   name: '\u7ba1\u7406\u4eba\u5458\u85aa\u916c',           months: new Array(12).fill(10000) },
-                { id: 'payrollTax',   name: 'Payroll Tax (FICA/FUTA/SUTA)',                    months: new Array(12).fill(1815)  },
-                { id: 'benefits',     name: '\u5458\u5de5\u798f\u5229/\u4fdd\u9669',           months: new Array(12).fill(2700)  },
-                { id: 'ads',          name: '\u5e7f\u544a\u8d39',                               months: new Array(12).fill(5000)  },
-                { id: 'freight',      name: '\u8fd0\u8f93\u8d39(\u516c\u53f8\u7ea7)',           months: new Array(12).fill(800)   },
-                { id: 'travel',       name: '\u5dee\u65c5\u8d39',                               months: new Array(12).fill(1500)  },
-                { id: 'rent',         name: '\u623f\u79df',                                     months: new Array(12).fill(3500)  },
-                { id: 'utilities',    name: '\u6c34\u7535\u71c3\u6c14',                         months: new Array(12).fill(600)   },
-                { id: 'property',     name: '\u7269\u4e1a\u8d39',                               months: new Array(12).fill(400)   },
-                { id: 'entertainment',name: '\u4e1a\u52a1\u62db\u5f85',                         months: new Array(12).fill(500)   },
-                { id: 'office',       name: '\u529e\u516c\u8d39',                               months: new Array(12).fill(300)   },
-                { id: 'phone',        name: '\u7535\u8bdd/\u7f51\u7edc\u8d39',                  months: new Array(12).fill(200)   },
-                { id: 'depreciation', name: '\u56fa\u5b9a\u8d44\u4ea7\u6298\u65e7',             months: new Array(12).fill(400)   },
-                { id: 'aftersales',   name: '\u552e\u540e',                                     months: new Array(12).fill(600)   },
-                { id: 'amortization', name: '\u65e0\u5f62\u8d44\u4ea7\u644a\u9500',             months: new Array(12).fill(200)   },
-                { id: 'other',        name: '\u5176\u4ed6\u8d39\u7528',                         months: new Array(12).fill(500)   }
+                { id: 'salesSalary', name: '\u9500\u552e\u4eba\u5458\u85aa\u916c',     months: months12(8000)  },
+                { id: 'mgmtSalary',  name: '\u7ba1\u7406\u4eba\u5458\u85aa\u916c',     months: months12(10000) },
+                { id: 'payrollTax',  name: 'Payroll Tax (FICA/FUTA/SUTA)',             months: months12(1815)  },
+                { id: 'benefits',    name: '\u5458\u5de5\u798f\u5229/\u4fdd\u9669',    months: months12(2700)  },
+                { id: 'ads',         name: '\u5e7f\u544a\u8d39',                        months: months12(5000)  },
+                { id: 'travel',      name: '\u5dee\u65c5\u8d39',                        months: months12(1500)  },
+                { id: 'rent',        name: '\u623f\u79df',                              months: months12(3500)  },
+                { id: 'utilities',   name: '\u6c34\u7535\u71c3\u6c14',                  months: months12(600)   },
+                { id: 'office',      name: '\u529e\u516c\u8d39',                        months: months12(300)   },
+                { id: 'phone',       name: '\u7535\u8bdd/\u7f51\u7edc\u8d39',           months: months12(200)   },
+                { id: 'aftersales',  name: '\u552e\u540e',                              months: months12(600)   },
+                { id: 'other',       name: '\u5176\u4ed6\u8d39\u7528',                  months: months12(500)   }
             ]
         },
         customCosts: [],
         forecast: {
-            monthlyUnits: Array.from({ length: 60 }, (_, i) => Math.min(4 + Math.round(i * 0.8), 40))
+            buyoutMonthlyUnits: [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6],
+            leaseMonthlyUnits:  [2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7]
+        }
+    };
+}
+
+// Clone of the user's Chinese Excel (陈龙玉 20260407) so they get a familiar starting point.
+function buildLegacyExcelScenario() {
+    const months12 = (v) => new Array(12).fill(v);
+    return {
+        version: 2,
+        meta: {
+            companyState: 'DE',
+            zipCode: '19801',
+            notes: '\u590d\u523b\u81ea\u300a\u7f8e\u56fd\u516c\u53f8\u8d39\u7528\u9884\u7b97-\u5229\u6da6\u6a21\u578b-\u9648\u9f99\u7389\u300b Excel\uff0c\u539f\u6a21\u578b\u6570\u636e\u4ee5\u4eba\u6c11\u5e01\u8ba1\u3002'
+        },
+        product: {
+            name: '\u828f\u53a8\u5e08 X7-2001',
+            unitCostUSD: 6187.63,
+            dimensions: X7_DIMENSIONS,
+            landed: {
+                oceanFreightUSD: 0,
+                importDutyPct: 0.0,
+                portFeesUSD: 0,
+                usInlandFreightUSD: 0,
+                warehouseMonthlyUSD: 0
+            },
+            installTrainingUSD: 300,
+            warrantyUSD: 0,
+            shippingToCustomerUSD: 0,
+            advertisingUSD: 0,
+            // Excel total commission 4% — split via cross-border schema, attach 50% → 3% + 2%*0.5 = 4%
+            commissions: {
+                usSalesPct: 0.03,
+                chinaReferralPct: 0.02,
+                chinaReferralAttachRate: 0.50,
+                otherPct: 0.0
+            }
+        },
+        buyout: { priceUSD: 15000 },
+        lease: {
+            monthlyRentUSD: 1724,
+            firstPayMonths: 2,
+            depositMonths: 1,
+            minMonths: 2,
+            earlyTerminationFeeUSD: 0
+        },
+        tax: {
+            federalCorpPct: 0.21,
+            stateCorpPct: US_STATE_CORP_TAX.DE,
+            franchiseTaxAnnualUSD: 400,
+            payroll: {
+                ficaEmployerPct: 0.0765,
+                futaPct: 0.006,
+                sutaPct: 0.018,
+                benefitsPctOfSalary: 0.15
+            }
+        },
+        opex: {
+            categories: [
+                { id: 'salary', name: '\u5de5\u8d44(\u4e0d\u542b\u63d0\u6210)', months: months12(8000) },
+                { id: 'social', name: '\u793e\u4fdd',                            months: months12(0)    },
+                { id: 'rent',   name: '\u623f\u79df\u6c34\u7535',                months: months12(0)    },
+                { id: 'travel', name: '\u9500\u552e\u5dee\u65c5\u8d39',          months: months12(500)  },
+                { id: 'other',  name: '\u5176\u4ed6',                            months: months12(300)  }
+            ]
+        },
+        customCosts: [],
+        forecast: {
+            buyoutMonthlyUnits: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            leaseMonthlyUnits:  [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
         }
     };
 }
@@ -754,15 +812,19 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
 
     const systemPrompt = [
         '你是 Panshaker 美国分公司（Delaware C-Corp，炒菜机器人 B2B）资深定价顾问。',
-        '产品：芯厨师 X7，中国零售 CNY 38800-50000，中国销售提成 4%；到岸前成本 CNY 27900/台（未含美国关税/海运/内陆/仓储）。',
+        '产品：芯厨师 X7-2001，中国零售 CNY 38800-50000，中国销售提成 4%；到岸前成本 CNY 27900/台（未含美国关税/海运/内陆/仓储）。',
         '竞品：智谷天厨，美国报价 USD 11000，FOB 中国港口（不含关税运费）。',
         '美国市场：Sales Tax 由目的州代收代缴不吃收入；联邦企业税 21%；DE 州 8.7% + Franchise Tax；雇主 payroll 约 9.4%。',
         '跨境提成机制：中国团队推荐线索→美国成交，提成需中美分成。行业惯例总池 ~5%，CN 引流方 40% / US 成交方 60%；必须把 CN 分成作为美国 P&L 独立变动成本，有效提成率 = usSalesPct + chinaReferralPct × chinaReferralAttachRate + otherPct。',
         '目标客户：美国中小餐饮连锁、云厨房、校园/医院食堂、食品工厂。',
-        '任务：基于精简场景 JSON，综合考虑变动成本、目标毛利 35-50%、竞品定位，生成：(1) 买断售价区间 low/high；(2) 租赁参数 firstPay/monthlyRent/deposit/minMonths/early-term fee/payback，最低租期 LTV 必须 > 变动成本+折旧；(3) 建议的中美提成分成 commissionSplit（各 pct + attach rate）；(4) 现金流转负月份预警；(5) 3 条风险；(6) 与竞品差异化定价说理 1 段。',
+        '任务：基于精简场景 JSON，综合考虑变动成本、目标毛利 35-50%、竞品定位，生成：(1) 买断售价区间 low/high；(2) 租赁参数 monthlyRent/firstPayMonths/depositMonths/minMonths/earlyTerminationFee/paybackMonths，最低租期 LTV 必须 > 变动成本；(3) 建议的中美提成分成 commissionSplit；(4) 现金流转负月份预警；(5) 3 条风险；(6) 与竞品差异化定价说理 1 段。',
+        '*** 关键格式约定 ***',
+        '- 所有"率/占比/百分比"字段（usSalesPct, chinaReferralPct, chinaReferralAttachRate, otherPct）必须使用小数 [0, 1]，例如 3% 写作 0.03，30% 写作 0.30，禁止写成 3 或 30。',
+        '- 所有金额字段使用美元数值（无货币符号，无千分位）。',
+        '- 月数字段为整数。',
         '严格只输出 1 个 JSON 对象，不要 markdown、不要```代码围栏、不要解释文字。schema：',
         '{"buyoutPrice":{"low":number,"high":number,"reason":string},',
-        '"lease":{"firstPay":number,"monthlyRent":number,"depositMonths":number,"firstPayMonths":number,"minMonths":number,"earlyTerminationFee":number,"paybackMonths":number,"reason":string},',
+        '"lease":{"monthlyRent":number,"firstPayMonths":number,"depositMonths":number,"minMonths":number,"earlyTerminationFee":number,"paybackMonths":number,"reason":string},',
         '"commissionSplit":{"usSalesPct":number,"chinaReferralPct":number,"chinaReferralAttachRate":number,"otherPct":number,"reason":string},',
         '"cashflowWarning":string,"risks":[string,string,string],"competitiveRationale":string}'
     ].join('\n');
@@ -771,12 +833,10 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
     const lean = {
         meta: scenario.meta,
         product: scenario.product,
-        assumptions: scenario.assumptions,
         buyout: scenario.buyout,
         lease: scenario.lease,
         tax: scenario.tax,
         customCosts: scenario.customCosts,
-        // Opex: only average monthly fixed, not full 12-month matrix
         opexMonthlyAvgUSD: (() => {
             const cats = scenario.opex?.categories || [];
             let total = 0;
@@ -786,7 +846,10 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
             }
             return Math.round(total / 12);
         })(),
-        forecastFirst12Months: (scenario.forecast?.monthlyUnits || []).slice(0, 12)
+        forecast: {
+            buyoutMonthlyUnits: (scenario.forecast?.buyoutMonthlyUnits || []).slice(0, 12),
+            leaseMonthlyUnits:  (scenario.forecast?.leaseMonthlyUnits  || []).slice(0, 12)
+        }
     };
 
     try {
@@ -801,9 +864,10 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
                 model: GLM_MODEL,
                 temperature: 0.2,
                 max_tokens: 3500,
+                response_format: { type: 'json_object' },
                 messages: [
                     { role: 'system', content: systemPrompt },
-                    { role: 'user', content: '当前场景(精简): ' + JSON.stringify(lean) + '\n请严格按 schema 输出 JSON，不要任何额外文字，不要 markdown 围栏。' }
+                    { role: 'user', content: '当前场景(精简): ' + JSON.stringify(lean) + '\n严格按 schema 输出 JSON，不要任何额外文字，不要 markdown 围栏。' }
                 ]
             }),
             signal: AbortSignal.timeout(GLM_TIMEOUT_MS)
@@ -831,11 +895,186 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
         if (!suggestion) {
             return res.status(502).json({ error: 'AI 返回非 JSON', elapsedMs: elapsed, raw: content.slice(0, 800) });
         }
+        // Normalize percentage fields: if AI returns integer 3 instead of 0.03 for a rate, auto-fix.
+        const normRate = (v) => {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return 0;
+            return n > 1 ? n / 100 : n;
+        };
+        if (suggestion.commissionSplit) {
+            ['usSalesPct', 'chinaReferralPct', 'chinaReferralAttachRate', 'otherPct'].forEach(k => {
+                if (suggestion.commissionSplit[k] != null) suggestion.commissionSplit[k] = normRate(suggestion.commissionSplit[k]);
+            });
+        }
         res.json({ success: true, elapsedMs: elapsed, model: GLM_MODEL, usage: payload?.usage, suggestion, raw: content });
     } catch (err) {
         console.error('GLM fetch error:', err);
         const msg = String(err?.name === 'TimeoutError' || /abort|timeout/i.test(String(err?.message)) ? 'AI 推理超时，请重试或减少场景复杂度' : (err?.message || err));
         res.status(502).json({ error: 'AI 请求异常', detail: msg });
+    }
+});
+
+// ZIP → state/city lookup via zippopotam.us + auto-pick default sales tax
+app.get('/api/finance/zip/:zip', async (req, res) => {
+    const zip = String(req.params.zip || '').replace(/\D/g, '');
+    if (!/^\d{5}$/.test(zip)) return jsonErr(res, 400, 'ZIP 必须为 5 位数字');
+    try {
+        const r = await fetch(ZIPPO_ENDPOINT + zip, { signal: AbortSignal.timeout(6000) });
+        if (!r.ok) return jsonErr(res, 404, 'ZIP 未找到');
+        const raw = await r.json();
+        const place = raw.places && raw.places[0];
+        if (!place) return jsonErr(res, 404, 'ZIP 未匹配到城市');
+        const stateAbbr = place['state abbreviation'];
+        // Load effective tax table (persisted overrides or defaults)
+        db.get('SELECT Value FROM FinanceSettings WHERE Key = ?', ['salesTaxTable'], (dbErr, row) => {
+            let salesTax = US_STATE_SALES_TAX;
+            let corpTax = US_STATE_CORP_TAX;
+            if (row) {
+                try { const p = JSON.parse(row.Value); if (p.salesTax) salesTax = p.salesTax; if (p.corpTax) corpTax = p.corpTax; } catch (_) {}
+            }
+            res.json({
+                zip,
+                state: stateAbbr,
+                stateName: place.state,
+                city: place['place name'],
+                latitude: Number(place.latitude),
+                longitude: Number(place.longitude),
+                salesTax: salesTax[stateAbbr] ?? 0,
+                corpTax:  corpTax[stateAbbr]  ?? 0
+            });
+        });
+    } catch (err) {
+        console.error('ZIP lookup error:', err);
+        res.status(502).json({ error: 'ZIP 查询失败', detail: String(err.message || err) });
+    }
+});
+
+// Ocean-freight estimator, default Shenzhen (SZX) → Los Angeles (LAX).
+// Inputs: cbm, weightKg, pricePerCbmUSD (mode), unitsPerShipment, extraFeesUSD
+// Returns a per-unit landed ocean-freight cost estimate.
+// Rates are market averages updated manually; caller can override.
+app.post('/api/finance/ocean-freight', (req, res) => {
+    const b = req.body || {};
+    const cbm = Number(b.cbm) || 1.56;
+    const weightKg = Number(b.weightKg) || 246;
+    const unitsPerShipment = Math.max(1, Number(b.unitsPerShipment) || 1);
+    const mode = b.mode || 'auto'; // 'LCL' | 'FCL40HQ' | 'auto'
+
+    // Chargeable weight rule: 1 CBM ≈ 1000 kg volumetric equivalent for ocean
+    // So for our X7: actual 246 kg vs 1.56 CBM × 1000 = 1560 kg → CBM dominates.
+    const totalCbm = cbm * unitsPerShipment;
+    const totalKg  = weightKg * unitsPerShipment;
+    const chargeableTons = Math.max(totalCbm, totalKg / 1000);
+
+    // Rough market rates (Shenzhen → LA, 2025 baseline; overrideable)
+    const LCL_USD_PER_CBM = Number(b.lclRatePerCbmUSD) || 120;  // port-to-port LCL
+    const FCL40HQ_TOTAL_USD = Number(b.fcl40hqUSD) || 4500;    // end-to-end 40'HQ (~76 CBM capacity)
+    const FCL40HQ_CAPACITY_CBM = 76;
+
+    const lclCost = totalCbm * LCL_USD_PER_CBM;
+    const fclFullCost = FCL40HQ_TOTAL_USD;
+    const fclPerUnitFull = fclFullCost / (FCL40HQ_CAPACITY_CBM / cbm); // cost assuming container is filled
+
+    let chosen, chosenTotalCost, note;
+    if (mode === 'LCL') {
+        chosen = 'LCL';
+        chosenTotalCost = lclCost;
+        note = 'LCL 散货拼箱估价';
+    } else if (mode === 'FCL40HQ') {
+        chosen = 'FCL40HQ';
+        chosenTotalCost = fclFullCost;
+        note = `40'HQ 整柜总价（容量约 ${FCL40HQ_CAPACITY_CBM} CBM，本批 ${totalCbm.toFixed(2)} CBM）`;
+    } else {
+        // auto: pick the cheaper one given current shipment volume
+        if (totalCbm >= 45 || lclCost > fclFullCost) {
+            chosen = 'FCL40HQ';
+            chosenTotalCost = fclFullCost;
+            note = `体积或总价超过 40'HQ 阈值，自动切整柜`;
+        } else {
+            chosen = 'LCL';
+            chosenTotalCost = lclCost;
+            note = `货量较少自动选 LCL`;
+        }
+    }
+
+    const extraFeesUSD = Number(b.extraFeesUSD) || 0; // port handling / docs / trucking to port
+    const perUnitUSD = (chosenTotalCost + extraFeesUSD) / unitsPerShipment;
+
+    res.json({
+        ok: true,
+        mode: chosen,
+        note,
+        totalCbm: Number(totalCbm.toFixed(3)),
+        totalKg,
+        chargeableTons: Number(chargeableTons.toFixed(3)),
+        lclCostUSD: Number(lclCost.toFixed(2)),
+        fcl40hqCostUSD: fclFullCost,
+        fcl40hqPerUnitUSDIfFull: Number(fclPerUnitFull.toFixed(2)),
+        extraFeesUSD,
+        perUnitUSD: Number(perUnitUSD.toFixed(2)),
+        assumptions: { lclRatePerCbmUSD: LCL_USD_PER_CBM, fcl40hqUSD: FCL40HQ_TOTAL_USD, fcl40hqCapacityCbm: FCL40HQ_CAPACITY_CBM }
+    });
+});
+
+// US inland LTL estimator based on ZIP-to-ZIP distance (haversine).
+// Rough LTL commercial rate model for a ~250 kg crated robot shipment:
+//   fixedBase (~$120) + $1.6/mile for first 500 mi then $0.9/mile thereafter
+// This is a ballpark; for true quotes the user should use a real rate engine.
+app.post('/api/finance/us-inland', async (req, res) => {
+    const b = req.body || {};
+    const fromZip = String(b.fromZip || '90001').replace(/\D/g, '');
+    const toZip   = String(b.toZip   || '').replace(/\D/g, '');
+    if (!/^\d{5}$/.test(fromZip) || !/^\d{5}$/.test(toZip)) {
+        return jsonErr(res, 400, 'fromZip 与 toZip 均需 5 位数字');
+    }
+    const weightKg = Number(b.weightKg) || 246;
+    const pieces = Math.max(1, Number(b.pieces) || 1);
+
+    async function lookup(zip) {
+        const r = await fetch(ZIPPO_ENDPOINT + zip, { signal: AbortSignal.timeout(6000) });
+        if (!r.ok) throw new Error('ZIP ' + zip + ' not found');
+        const raw = await r.json();
+        const p = raw.places && raw.places[0];
+        if (!p) throw new Error('ZIP ' + zip + ' 未匹配城市');
+        return { lat: Number(p.latitude), lon: Number(p.longitude), state: p['state abbreviation'], city: p['place name'] };
+    }
+
+    try {
+        const [from, to] = await Promise.all([lookup(fromZip), lookup(toZip)]);
+        // Haversine distance (miles)
+        const toRad = (d) => d * Math.PI / 180;
+        const R = 3958.8;
+        const dLat = toRad(to.lat - from.lat);
+        const dLon = toRad(to.lon - from.lon);
+        const a = Math.sin(dLat/2)**2 + Math.cos(toRad(from.lat)) * Math.cos(toRad(to.lat)) * Math.sin(dLon/2)**2;
+        const distMi = 2 * R * Math.asin(Math.sqrt(a));
+
+        const base = 120;
+        const tier1 = Math.min(distMi, 500) * 1.6;
+        const tier2 = Math.max(0, distMi - 500) * 0.9;
+        // Pieces/weight surcharge: for multi-unit shipments (each 246 kg)
+        const weightSurcharge = Math.max(0, (weightKg * pieces - 250) * 0.35);
+        const totalUSD = base + tier1 + tier2 + weightSurcharge;
+        const perUnitUSD = totalUSD / pieces;
+
+        res.json({
+            ok: true,
+            from: { zip: fromZip, city: from.city, state: from.state },
+            to:   { zip: toZip,   city: to.city,   state: to.state },
+            distanceMiles: Number(distMi.toFixed(1)),
+            totalUSD: Number(totalUSD.toFixed(2)),
+            perUnitUSD: Number(perUnitUSD.toFixed(2)),
+            breakdown: {
+                base: base,
+                tier1_first500mi: Number(tier1.toFixed(2)),
+                tier2_beyond500mi: Number(tier2.toFixed(2)),
+                weightSurcharge: Number(weightSurcharge.toFixed(2))
+            },
+            note: '基于 ZIP 大圆距离的粗估 LTL 报价；精确报价请接入 Shippo/EasyPost/Freightos 付费 API。'
+        });
+    } catch (err) {
+        console.error('US inland error:', err);
+        res.status(502).json({ error: '内陆运费估算失败', detail: String(err.message || err) });
     }
 });
 

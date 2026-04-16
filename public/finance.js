@@ -1,17 +1,16 @@
-// Panshaker Finance Module - compute core
-// All monetary values in USD unless suffix "CNY" used.
-// The scenario JSON structure follows index.js::buildBaselineScenario().
-
+// Panshaker Finance compute core (v2).
+// Simplified:
+//   - No depreciation, no leaseRatio, no lead-gen derivation.
+//   - Forecast: two explicit monthly arrays (buyoutMonthlyUnits / leaseMonthlyUnits).
+//   - Lease LTV = monthlyRent * minMonths - upfrontVarCost.
+// All monetary values stored as USD. Currency display is a UI concern.
 (function (global) {
-    // ── Generic helpers ──
     const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100;
-    const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
     const num = (x, def = 0) => {
         const n = Number(x);
         return Number.isFinite(n) ? n : def;
     };
 
-    // FX helpers: toUSD / toCNY
     function toUSD(amount, currency, fxRate) {
         if (currency === 'CNY') return num(amount) / num(fxRate, 7.2);
         return num(amount);
@@ -20,9 +19,6 @@
         return num(amountUSD) * num(fxRate, 7.2);
     }
 
-    // Effective commission rate, supporting both new cross-border schema and legacy field.
-    //   newSchema: usSalesPct + chinaReferralPct * chinaReferralAttachRate + otherPct
-    //   legacy:    salesPct + otherPct
     function effectiveCommissionRate(scenario) {
         const c = scenario.product?.commissions || {};
         if (c.usSalesPct != null || c.chinaReferralPct != null) {
@@ -30,8 +26,6 @@
         }
         return num(c.salesPct) + num(c.otherPct);
     }
-
-    // Split of the effective commission rate for display purposes.
     function commissionBreakdown(scenario) {
         const c = scenario.product?.commissions || {};
         const us = num(c.usSalesPct != null ? c.usSalesPct : c.salesPct);
@@ -40,33 +34,22 @@
         return { us, cnRef, other, total: us + cnRef + other };
     }
 
-    // ── Derive per-unit landed cost (USD) ──
-    // unitCostUSD already is the FOB/ex-works cost delivered to China port (or similar base).
+    // Per-unit landed cost (USD): base + ocean + duty + port + US inland.
     function computeLandedUnitCost(scenario) {
         const p = scenario.product || {};
         const l = p.landed || {};
         const base = num(p.unitCostUSD);
         const duty = base * num(l.importDutyPct);
-        return base
-            + num(l.oceanFreightUSD)
-            + duty
-            + num(l.portFeesUSD)
-            + num(l.usInlandFreightUSD);
-        // warehouseMonthly is allocated as monthly fixed, not per-unit landed.
+        return base + num(l.oceanFreightUSD) + duty + num(l.portFeesUSD) + num(l.usInlandFreightUSD);
     }
 
-    // ── Custom cost aggregation ──
-    // Custom cost items have: { id, name, unit: 'per_unit'|'per_customer'|'per_month'|'once',
-    //                           valueUSD, appliesTo: 'buyout'|'lease'|'both' }
     function customPerUnit(scenario, channel) {
-        const items = scenario.customCosts || [];
-        return items
+        return (scenario.customCosts || [])
             .filter(c => (c.appliesTo === channel || c.appliesTo === 'both') && c.unit === 'per_unit')
             .reduce((s, c) => s + num(c.valueUSD), 0);
     }
     function customPerCustomer(scenario, channel) {
-        const items = scenario.customCosts || [];
-        return items
+        return (scenario.customCosts || [])
             .filter(c => (c.appliesTo === channel || c.appliesTo === 'both') && c.unit === 'per_customer')
             .reduce((s, c) => s + num(c.valueUSD), 0);
     }
@@ -81,447 +64,336 @@
             .reduce((s, c) => s + num(c.valueUSD), 0);
     }
 
-    // ── Monthly fixed opex ──
-    function monthlyFixedOpex(scenario, monthIdx /* 0..11 or >=12 (loops) */) {
-        const cats = (scenario.opex?.categories || []);
+    function monthlyFixedOpex(scenario, monthIdx) {
+        const cats = scenario.opex?.categories || [];
         const idx = ((num(monthIdx) % 12) + 12) % 12;
         let sum = 0;
-        for (const c of cats) {
-            const arr = c.months || [];
-            sum += num(arr[idx]);
-        }
-        // custom per_month items added uniformly
+        for (const c of cats) sum += num((c.months || [])[idx]);
         sum += customPerMonthTotal(scenario);
-        // warehouse monthly from product.landed
         sum += num(scenario.product?.landed?.warehouseMonthlyUSD);
         return sum;
     }
-
     function avgMonthlyFixedOpex(scenario) {
         let total = 0;
         for (let i = 0; i < 12; i++) total += monthlyFixedOpex(scenario, i);
         return total / 12;
     }
 
-    // ── BUYOUT model ──
-    function computeBuyout(scenario) {
-        const a = scenario.assumptions || {};
-        const b = scenario.buyout || {};
+    // ── Per-unit economics ──
+    function perUnitBuyout(scenario) {
         const p = scenario.product || {};
-        const tax = scenario.tax || {};
-
-        const customers = num(a.totalLeads) * num(a.conversionRate);
-        const units = customers * num(a.unitsPerCustomer);
-        const price = num(b.priceUSD);
-
+        const price = num(scenario.buyout?.priceUSD);
         const landed = computeLandedUnitCost(scenario);
-        const perUnitCustom = customPerUnit(scenario, 'buyout');
-        const perCustomerCustom = customPerCustomer(scenario, 'buyout');
-
-        // Variable per-unit cost (includes US closer + CN referral * attach rate + other)
-        const commissionRate = effectiveCommissionRate(scenario);
-        const commissionPerUnit = price * commissionRate;
-
-        const varPerUnit =
-            landed +
-            num(p.installTrainingUSD) +
-            num(p.warrantyUSD) +
-            num(p.shippingToCustomerUSD) +
-            num(p.advertisingUSD) +
-            commissionPerUnit +
-            perUnitCustom +
-            perCustomerCustom / Math.max(1, num(a.unitsPerCustomer, 1)); // per-customer pro-rated per unit
-
-        const revenue = units * price;
-        const varCost = units * varPerUnit;
-
-        // Annual fixed
-        const annualFixed = avgMonthlyFixedOpex(scenario) * 12;
-        const franchise = num(tax.franchiseTaxAnnualUSD);
-
-        const ebt = revenue - varCost - annualFixed - franchise;
-        const corpTaxRate = num(tax.federalCorpPct) + num(tax.stateCorpPct);
-        const corpTax = Math.max(0, ebt) * corpTaxRate;
-        const netProfit = ebt - corpTax;
-
-        const grossPerUnit = price - varPerUnit;
-        const grossPct = price > 0 ? grossPerUnit / price : 0;
-        const varCostRate = revenue > 0 ? varCost / revenue : 0;
-        const contributionMargin = 1 - varCostRate;
-        const breakevenRevenue = contributionMargin > 0 ? (annualFixed + franchise) / contributionMargin : Infinity;
-        const breakevenUnits = price > 0 ? breakevenRevenue / price : Infinity;
-
+        const commission = price * effectiveCommissionRate(scenario);
+        const varPerUnit = landed
+            + num(p.installTrainingUSD)
+            + num(p.warrantyUSD)
+            + num(p.shippingToCustomerUSD)
+            + num(p.advertisingUSD)
+            + commission
+            + customPerUnit(scenario, 'buyout')
+            + customPerCustomer(scenario, 'buyout'); // one customer per unit assumption
         return {
-            customers, units, price, varPerUnit, grossPerUnit, grossPct,
-            revenue, varCost, annualFixed, franchise, ebt, corpTax, netProfit,
-            varCostRate, contributionMargin, breakevenRevenue, breakevenUnits,
-            landed
+            price,
+            landed,
+            commission,
+            varPerUnit,
+            grossPerUnit: price - varPerUnit,
+            grossPct: price > 0 ? (price - varPerUnit) / price : 0
         };
     }
 
-    function buildBuyoutRows(scenario, r) {
-        // Mirrors Excel "1买断-利润模型" sheet structure
-        const a = scenario.assumptions || {};
+    function perUnitLease(scenario) {
         const p = scenario.product || {};
-        const b = scenario.buyout || {};
-        const rows = [];
-        const push = (group, name, value, isPct, isTotal) => rows.push({ group, name, value, isPct, isTotal });
-
-        push('假设-业绩', '总线索数', num(a.totalLeads));
-        push('假设-业绩', '线索成交率', num(a.conversionRate), true);
-        push('假设-业绩', '单线索成本 (USD)', num(a.costPerLeadUSD));
-        push('假设-业绩', '成交客户数', r.customers);
-        push('假设-业绩', '每客户平均首单购买数量', num(a.unitsPerCustomer));
-        push('假设-业绩', '销量 (台)', r.units);
-        push('假设-政策', '买断售价 (USD)', num(b.priceUSD));
-        push('假设-成本', '每台到岸成本 (USD)', r.landed);
-        push('假设-成本', '每客户上门培训成本 (USD)', num(p.installTrainingUSD));
-        push('假设-成本', '每台设备运输费 (USD)', num(p.shippingToCustomerUSD));
-        push('假设-成本', '每台设备质保费 (USD)', num(p.warrantyUSD));
-        push('假设-成本', '每台设备广告费 (USD)', num(p.advertisingUSD));
-        const cb = commissionBreakdown(scenario);
-        push('假设-成本', '美国成交方提成率', num(p.commissions?.usSalesPct != null ? p.commissions.usSalesPct : p.commissions?.salesPct), true);
-        push('假设-成本', '中国引流方提成率', num(p.commissions?.chinaReferralPct), true);
-        push('假设-成本', '中国引流占比 (attach rate)', num(p.commissions?.chinaReferralAttachRate), true);
-        push('假设-成本', '其他提成/奖励', num(p.commissions?.otherPct), true);
-        push('假设-成本', '有效综合提成率', cb.total, true);
-        push('假设-税率', '联邦企业所得税', num(scenario.tax?.federalCorpPct), true);
-        push('假设-税率', '州企业所得税', num(scenario.tax?.stateCorpPct), true);
-        push('结论-利润', '销售总额 (USD)', r.revenue, false, true);
-        push('结论-利润', '变动成本合计 (USD)', r.varCost);
-        push('结论-利润', '固定成本合计 (USD)', r.annualFixed);
-        push('结论-利润', 'Franchise Tax (USD)', r.franchise);
-        push('结论-利润', '税前利润 EBT (USD)', r.ebt);
-        push('结论-利润', '企业所得税 (USD)', r.corpTax);
-        push('结论-利润', '净利润 (USD)', r.netProfit, false, true);
-        push('结论-利润', '净利率', r.revenue > 0 ? r.netProfit / r.revenue : 0, true);
-        push('结论-质量', '单台变动成本 (USD)', r.varPerUnit);
-        push('结论-质量', '单台毛利 (USD)', r.grossPerUnit);
-        push('结论-质量', '毛利率', r.grossPct, true);
-        push('结论-质量', '变动成本率', r.varCostRate, true);
-        push('结论-质量', '边际贡献率', r.contributionMargin, true);
-        push('结论-质量', '盈亏平衡销售额 (USD)', r.breakevenRevenue);
-        push('结论-质量', '盈亏平衡销售量 (台)', r.breakevenUnits);
-        return rows;
-    }
-
-    // ── LEASE model ──
-    function computeLease(scenario) {
-        const a = scenario.assumptions || {};
         const L = scenario.lease || {};
-        const p = scenario.product || {};
-        const tax = scenario.tax || {};
-
-        const customers = num(a.totalLeads) * num(a.conversionRate);
-        const units = customers * num(a.unitsPerCustomer);
-        const firstPay = num(L.firstPayUSD);
         const rent = num(L.monthlyRentUSD);
-        const minMonths = Math.max(1, num(L.minMonths, 24));
-        const firstPayMonths = Math.max(0, num(L.firstPayMonths, 1));
-        const depositMonths = Math.max(0, num(L.depositMonths, 2));
-        const etFee = num(L.earlyTerminationFeeUSD);
+        const firstPayMonths = Math.max(0, num(L.firstPayMonths, 0));
+        const depositMonths = Math.max(0, num(L.depositMonths, 0));
+        const minMonths = Math.max(1, num(L.minMonths, 1));
+
+        // Customer pays upfront: firstPayMonths × rent + deposit (deposit refunded later).
+        const firstPeriodCashIn = rent * (firstPayMonths + depositMonths);
+        // Revenue recognized over min-term = rent × minMonths (deposit not revenue).
+        const minTermRevenue = rent * minMonths;
 
         const landed = computeLandedUnitCost(scenario);
-        const usefulLifeMonths = Math.max(1, num(p.usefulLifeMonths, 60));
-        const monthlyDep = landed / usefulLifeMonths;
+        const commission = minTermRevenue * effectiveCommissionRate(scenario);
+        const upfrontVarCost = landed
+            + num(p.installTrainingUSD)
+            + num(p.warrantyUSD)
+            + num(p.shippingToCustomerUSD)
+            + num(p.advertisingUSD)
+            + commission
+            + customPerUnit(scenario, 'lease')
+            + customPerCustomer(scenario, 'lease');
 
-        // LTV within the minimum lease window
-        const revPerUnitMinTerm = firstPay + rent * minMonths; // deposit excluded (refundable)
-        const commissionRate = effectiveCommissionRate(scenario);
-        const commissionPerUnit = revPerUnitMinTerm * commissionRate;
-
-        const perUnitCustom = customPerUnit(scenario, 'lease');
-        const perCustomerCustom = customPerCustomer(scenario, 'lease');
-
-        // Upfront variable cost per unit (the "cost of putting device into the field")
-        const varPerUnitOneTime =
-            landed +
-            num(p.installTrainingUSD) +
-            num(p.warrantyUSD) +
-            num(p.shippingToCustomerUSD) +
-            num(p.advertisingUSD) +
-            commissionPerUnit +
-            perUnitCustom +
-            perCustomerCustom / Math.max(1, num(a.unitsPerCustomer, 1));
-
-        // Unit-cost within minimum term (include monthly depreciation over minMonths)
-        const varPerUnitLTV = varPerUnitOneTime + monthlyDep * minMonths;
-        const ltvNet = revPerUnitMinTerm - varPerUnitLTV;
-
-        // Payback months: firstPay + rent * n >= varPerUnitOneTime + monthlyDep * n
-        // => n * (rent - monthlyDep) >= varPerUnitOneTime - firstPay
-        const margin = rent - monthlyDep;
+        const ltvNet = minTermRevenue - upfrontVarCost;
+        // Payback in months: how many months of rent cover upfront var cost beyond firstPay.
+        const rentAfterFirst = rent; // net: each month after first-pay adds rent (first-pay already covers firstPayMonths months of rent which are also accounted for in minTermRevenue, so this is simple linear)
         let paybackMonths = Infinity;
-        if (margin > 0) {
-            paybackMonths = Math.max(0, Math.ceil((varPerUnitOneTime - firstPay) / margin));
-            if (firstPay >= varPerUnitOneTime) paybackMonths = 0;
+        if (rentAfterFirst > 0 && upfrontVarCost > 0) {
+            paybackMonths = Math.max(0, Math.ceil(upfrontVarCost / rentAfterFirst));
+        } else if (upfrontVarCost <= 0) {
+            paybackMonths = 0;
         }
 
-        // Totals using all forecast units (for P&L table)
-        const totalRevenueMinTerm = units * revPerUnitMinTerm;
-        const totalVarCostMinTerm = units * varPerUnitLTV;
+        return {
+            rent,
+            firstPayMonths,
+            depositMonths,
+            minMonths,
+            firstPeriodCashIn,
+            minTermRevenue,
+            landed,
+            commission,
+            upfrontVarCost,
+            ltvNet,
+            paybackMonths
+        };
+    }
+
+    // ── Aggregate P&L from 12-month forecast ──
+    function computePnl(scenario) {
+        const bf = scenario.forecast?.buyoutMonthlyUnits || [];
+        const lf = scenario.forecast?.leaseMonthlyUnits  || [];
+        const buyoutTotal = bf.reduce((s, v) => s + num(v), 0);
+        const leaseTotal  = lf.reduce((s, v) => s + num(v), 0);
+
+        const b = perUnitBuyout(scenario);
+        const l = perUnitLease(scenario);
+
+        const buyoutRevenue = buyoutTotal * b.price;
+        const buyoutVarCost = buyoutTotal * b.varPerUnit;
+
+        // Lease: revenue recognized = min-term rent × leaseTotal cohorts
+        const leaseRevenue = leaseTotal * l.minTermRevenue;
+        const leaseVarCost = leaseTotal * l.upfrontVarCost;
+
         const annualFixed = avgMonthlyFixedOpex(scenario) * 12;
-        const franchise = num(tax.franchiseTaxAnnualUSD);
-        const ebt = totalRevenueMinTerm - totalVarCostMinTerm - annualFixed - franchise;
-        const corpRate = num(tax.federalCorpPct) + num(tax.stateCorpPct);
+        const franchise = num(scenario.tax?.franchiseTaxAnnualUSD);
+        const onceCost = customOnceTotal(scenario);
+
+        const totalRevenue = buyoutRevenue + leaseRevenue;
+        const totalVarCost = buyoutVarCost + leaseVarCost;
+        const ebt = totalRevenue - totalVarCost - annualFixed - franchise - onceCost;
+        const corpRate = num(scenario.tax?.federalCorpPct) + num(scenario.tax?.stateCorpPct);
         const corpTax = Math.max(0, ebt) * corpRate;
         const netProfit = ebt - corpTax;
 
-        const varRate = totalRevenueMinTerm > 0 ? totalVarCostMinTerm / totalRevenueMinTerm : 0;
+        const varRate = totalRevenue > 0 ? totalVarCost / totalRevenue : 0;
         const contribMargin = 1 - varRate;
-        const breakevenRevenue = contribMargin > 0 ? (annualFixed + franchise) / contribMargin : Infinity;
-        const breakevenUnits = revPerUnitMinTerm > 0 ? breakevenRevenue / revPerUnitMinTerm : Infinity;
+        const breakevenRevenue = contribMargin > 0 ? (annualFixed + franchise + onceCost) / contribMargin : Infinity;
 
         return {
-            customers, units, firstPay, rent, minMonths, firstPayMonths, depositMonths, etFee,
-            landed, monthlyDep, revPerUnitMinTerm, varPerUnitOneTime, varPerUnitLTV, ltvNet,
-            paybackMonths, totalRevenueMinTerm, totalVarCostMinTerm,
-            annualFixed, franchise, ebt, corpTax, netProfit,
-            varCostRate: varRate, contributionMargin: contribMargin,
-            breakevenRevenue, breakevenUnits, commissionPerUnit
+            buyoutTotal, leaseTotal,
+            buyoutRevenue, buyoutVarCost,
+            leaseRevenue,  leaseVarCost,
+            annualFixed, franchise, onceCost,
+            totalRevenue, totalVarCost,
+            ebt, corpTax, netProfit,
+            varRate, contribMargin, breakevenRevenue,
+            perUnit: { buyout: b, lease: l }
         };
     }
 
-    function buildLeaseRows(scenario, r) {
-        const a = scenario.assumptions || {};
-        const L = scenario.lease || {};
-        const p = scenario.product || {};
-        const rows = [];
-        const push = (group, name, value, isPct, isTotal) => rows.push({ group, name, value, isPct, isTotal });
-
-        push('假设-业绩', '总线索数', num(a.totalLeads));
-        push('假设-业绩', '线索成交率', num(a.conversionRate), true);
-        push('假设-业绩', '单线索成本 (USD)', num(a.costPerLeadUSD));
-        push('假设-业绩', '成交客户数', r.customers);
-        push('假设-业绩', '每客户平均首单租赁数量', num(a.unitsPerCustomer));
-        push('假设-业绩', '首期投放量 (台)', r.units);
-        push('假设-政策', '每台首单价格 (USD)', r.firstPay);
-        push('假设-政策', '每台月租金 (USD)', r.rent);
-        push('假设-政策', `首期月数 / 押金月数 (租${r.firstPayMonths}押${r.depositMonths})`, r.firstPayMonths + '/' + r.depositMonths);
-        push('假设-政策', '最低租期 (月)', r.minMonths);
-        push('假设-政策', '提前退租费 (USD)', r.etFee);
-        push('假设-成本', '每台到岸成本 (USD)', r.landed);
-        push('假设-成本', '每月折旧成本 (USD)', r.monthlyDep);
-        push('假设-成本', '每客户上门培训成本 (USD)', num(p.installTrainingUSD));
-        push('假设-成本', '每台设备运输费 (USD)', num(p.shippingToCustomerUSD));
-        push('假设-成本', '每台设备质保费 (USD)', num(p.warrantyUSD));
-        push('假设-成本', '每台设备广告费 (USD)', num(p.advertisingUSD));
-        const lcb = commissionBreakdown(scenario);
-        push('假设-成本', '美国成交方提成率', num(p.commissions?.usSalesPct != null ? p.commissions.usSalesPct : p.commissions?.salesPct), true);
-        push('假设-成本', '中国引流方提成率', num(p.commissions?.chinaReferralPct), true);
-        push('假设-成本', '中国引流占比 (attach rate)', num(p.commissions?.chinaReferralAttachRate), true);
-        push('假设-成本', '其他提成/奖励', num(p.commissions?.otherPct), true);
-        push('假设-成本', '有效综合提成率', lcb.total, true);
-        push('结论-利润', '最低租期租金总收入 (USD)', r.totalRevenueMinTerm, false, true);
-        push('结论-利润', '最低租期变动成本合计 (USD)', r.totalVarCostMinTerm);
-        push('结论-利润', '固定成本合计 (USD)', r.annualFixed);
-        push('结论-利润', 'Franchise Tax (USD)', r.franchise);
-        push('结论-利润', '税前利润 EBT (USD)', r.ebt);
-        push('结论-利润', '企业所得税 (USD)', r.corpTax);
-        push('结论-利润', '净利润 (USD)', r.netProfit, false, true);
-        push('结论-利润', '净利率', r.totalRevenueMinTerm > 0 ? r.netProfit / r.totalRevenueMinTerm : 0, true);
-        push('结论-质量', '单台最低租期收入 LTV (USD)', r.revPerUnitMinTerm);
-        push('结论-质量', '单台前期变动成本 (USD)', r.varPerUnitOneTime);
-        push('结论-质量', '单台 LTV 成本 (含折旧) (USD)', r.varPerUnitLTV);
-        push('结论-质量', '单台 LTV 净收益 (USD)', r.ltvNet);
-        push('结论-质量', '回本月数', r.paybackMonths);
-        push('结论-质量', '变动成本率', r.varCostRate, true);
-        push('结论-质量', '边际贡献率', r.contributionMargin, true);
-        push('结论-质量', '盈亏平衡租金总额 (USD)', r.breakevenRevenue);
-        return rows;
-    }
-
-    // ── MONTHLY cash-flow projection (cohort model) ──
-    // For each month m (1..N):
-    //   - New customers this month (buyoutCohort[m], leaseCohort[m])
-    //   - Revenue/cost events for ALL active cohorts in month m
-    //
-    // Assumptions:
-    //   - Lease cohort lasts exactly minMonths, then deposit refunds on month end of (start+minMonths-1).
-    //   - Buyout: full revenue + variable cost incurred at cohort start month.
-    //   - Fixed opex: applied every month.
-    //   - Depreciation: applied every month for every active leased unit.
-    //   - Taxes: applied monthly on positive EBT (simple linearization).
+    // ── Monthly cashflow (cohort based) ──
     function computeCashflow(scenario, N) {
-        const months = Math.max(1, Math.min(120, num(N, scenario.meta?.cashflowMonths || 24)));
-        const forecast = (scenario.forecast?.monthlyUnits || []).slice(0, months);
-        while (forecast.length < months) forecast.push(0);
+        const months = Math.max(1, Math.min(60, num(N, 12)));
+        const bf = (scenario.forecast?.buyoutMonthlyUnits || []).slice(0, months);
+        const lf = (scenario.forecast?.leaseMonthlyUnits  || []).slice(0, months);
+        while (bf.length < months) bf.push(0);
+        while (lf.length < months) lf.push(0);
 
-        const leaseRatio = clamp(num(scenario.assumptions?.leaseRatio, 0.6), 0, 1);
-        const price = num(scenario.buyout?.priceUSD);
-        const p = scenario.product || {};
+        const b = perUnitBuyout(scenario);
+        const l = perUnitLease(scenario);
         const L = scenario.lease || {};
         const tax = scenario.tax || {};
-        const landed = computeLandedUnitCost(scenario);
-        const usefulLife = Math.max(1, num(p.usefulLifeMonths, 60));
-        const monthlyDep = landed / usefulLife;
-
-        // Per-unit variable cost (upfront)
-        const commissionRate = effectiveCommissionRate(scenario);
-        const perUnitCustomBuyout = customPerUnit(scenario, 'buyout');
-        const perUnitCustomLease  = customPerUnit(scenario, 'lease');
-        const perCustomerCustomBuyout = customPerCustomer(scenario, 'buyout');
-        const perCustomerCustomLease  = customPerCustomer(scenario, 'lease');
-        const upc = Math.max(1, num(scenario.assumptions?.unitsPerCustomer, 1));
-
-        const buyoutVarPerUnit =
-            landed +
-            num(p.installTrainingUSD) +
-            num(p.warrantyUSD) +
-            num(p.shippingToCustomerUSD) +
-            num(p.advertisingUSD) +
-            price * commissionRate +
-            perUnitCustomBuyout + perCustomerCustomBuyout / upc;
-
-        const leaseVarPerUnit =
-            landed +
-            num(p.installTrainingUSD) +
-            num(p.warrantyUSD) +
-            num(p.shippingToCustomerUSD) +
-            num(p.advertisingUSD) +
-            (num(L.firstPayUSD) + num(L.monthlyRentUSD) * Math.max(1, num(L.minMonths, 24))) * commissionRate +
-            perUnitCustomLease + perCustomerCustomLease / upc;
-
-        // Lease cohort counts
-        const leaseStart = forecast.map(u => num(u) * leaseRatio);
-        const buyoutStart = forecast.map(u => num(u) * (1 - leaseRatio));
-
-        const firstPayM = Math.max(0, num(L.firstPayMonths, 1));
-        const depositM  = Math.max(0, num(L.depositMonths, 2));
-        const minM      = Math.max(1, num(L.minMonths, 24));
-
-        const onceTotal = customOnceTotal(scenario); // applied at month 1
         const corpRate = num(tax.federalCorpPct) + num(tax.stateCorpPct);
         const franchiseMonthly = num(tax.franchiseTaxAnnualUSD) / 12;
+        const onceTotal = customOnceTotal(scenario);
 
         const result = [];
         let cum = 0;
-
         for (let m = 1; m <= months; m++) {
             const idx = m - 1;
-            const newBuyoutUnits = buyoutStart[idx];
-            const newLeaseUnits = leaseStart[idx];
+            const newBuyout = num(bf[idx]);
+            const newLease  = num(lf[idx]);
 
-            // --- Lease recurring revenue: each cohort k pays monthlyRent every month
-            //     from month (k + firstPayMonths) up through month (k + minMonths - 1) UNLESS firstPayMonths already covered the early months.
-            // For simplicity: lease cohort k contributes monthlyRent at months k+1 .. k+minMonths - 1 (the first month k already receives prepaid rent).
+            // Lease recurring rent from prior cohorts (after their firstPay block ends)
             let leaseRecurringRev = 0;
-            let leaseRecurringDep = 0; // monthly depreciation for every active unit
-            let depositRefund = 0;
+            let leaseDepositRefund = 0;
             for (let k = 0; k < m; k++) {
-                const age = idx - k; // 0 = just started this month
-                const started = leaseStart[k];
+                const started = num(lf[k]);
                 if (started <= 0) continue;
-
-                // Active if age < minM
-                if (age < minM) {
-                    // Monthly rent stream (after the first-pay block)
-                    if (age >= firstPayM) {
-                        leaseRecurringRev += started * num(L.monthlyRentUSD);
-                    }
-                    // Monthly depreciation charges
-                    leaseRecurringDep += started * monthlyDep;
+                const age = idx - k;
+                if (age >= l.firstPayMonths && age < l.minMonths) {
+                    leaseRecurringRev += started * l.rent;
                 }
-                // Deposit refund in the month AFTER lease ends (age == minM)
-                if (age === minM) {
-                    depositRefund += started * num(L.monthlyRentUSD) * depositM;
+                if (age === l.minMonths) {
+                    leaseDepositRefund += started * l.rent * l.depositMonths;
                 }
             }
 
-            // --- Cohort-start cash (this month m only)
-            const leaseCohortUpfrontRev  = newLeaseUnits * (num(L.firstPayUSD) + num(L.monthlyRentUSD) * firstPayM);
-            const leaseCohortDepositIn   = newLeaseUnits * num(L.monthlyRentUSD) * depositM; // cash in, liability
-            const leaseCohortVarCost     = newLeaseUnits * leaseVarPerUnit;
+            // New cohort cash
+            const leaseFirstPayIn = newLease * l.rent * l.firstPayMonths;
+            const leaseDepositIn  = newLease * l.rent * l.depositMonths;
+            const leaseUpfrontCost = newLease * l.upfrontVarCost;
 
-            const buyoutRev     = newBuyoutUnits * price;
-            const buyoutVarCost = newBuyoutUnits * buyoutVarPerUnit;
+            const buyoutRev     = newBuyout * b.price;
+            const buyoutVarCost = newBuyout * b.varPerUnit;
 
-            // --- Monthly fixed opex (incl. warehouse + custom per_month)
             const fixedMonthly = monthlyFixedOpex(scenario, idx);
-
-            // --- Once-only customCosts charged on month 1
             const onceCost = m === 1 ? onceTotal : 0;
 
-            // --- Revenue/cost aggregation for P&L style
-            const revenueThisMonth = buyoutRev + leaseCohortUpfrontRev + leaseRecurringRev;
-            const varThisMonth = buyoutVarCost + leaseCohortVarCost;
-            const nonCashDep = leaseRecurringDep;
+            const revenueThisMonth = buyoutRev + leaseFirstPayIn + leaseRecurringRev;
+            const varThisMonth = buyoutVarCost + leaseUpfrontCost;
 
-            const ebtMonth = revenueThisMonth - varThisMonth - fixedMonthly - nonCashDep - franchiseMonthly - onceCost;
+            const ebtMonth = revenueThisMonth - varThisMonth - fixedMonthly - franchiseMonthly - onceCost;
             const taxMonth = Math.max(0, ebtMonth) * corpRate;
 
-            // Cash flow (exclude non-cash depreciation, include deposit cash movements)
             const netCash = revenueThisMonth - varThisMonth - fixedMonthly - franchiseMonthly - onceCost - taxMonth
-                          + leaseCohortDepositIn - depositRefund;
+                + leaseDepositIn - leaseDepositRefund;
 
             cum += netCash;
-
             result.push({
                 m,
-                units: forecast[idx],
+                buyoutUnits: newBuyout,
+                leaseUnits: newLease,
                 bRev: r2(buyoutRev),
-                lRev: r2(leaseCohortUpfrontRev + leaseRecurringRev),
+                lRev: r2(leaseFirstPayIn + leaseRecurringRev),
                 varC: r2(varThisMonth),
                 fixedC: r2(fixedMonthly + franchiseMonthly + onceCost),
                 tax: r2(taxMonth),
                 net: r2(netCash),
                 cum: r2(cum),
-                depositIn: r2(leaseCohortDepositIn),
-                depositOut: r2(depositRefund),
-                dep: r2(nonCashDep),
+                depositIn: r2(leaseDepositIn),
+                depositOut: r2(leaseDepositRefund),
                 ebt: r2(ebtMonth)
             });
         }
         return result;
     }
 
-    // ── KPIs for Dashboard ──
-    function computeKPIs(scenario, buy, lease, cashflow) {
-        const minM = Math.max(1, num(scenario.lease?.minMonths, 24));
+    // ── KPI panel summary ──
+    function computeKPIs(scenario, pnl, cashflow) {
         const firstNeg = cashflow.find(r => r.net < 0);
         const maxDeficit = cashflow.reduce((mn, r) => Math.min(mn, r.net), 0);
         const minCum = cashflow.reduce((mn, r) => Math.min(mn, r.cum), 0);
+        const b = pnl.perUnit.buyout;
+        const l = pnl.perUnit.lease;
 
         return {
-            buyoutPrice: r2(buy.price),
-            buyoutVarCost: r2(buy.varPerUnit),
-            buyoutGrossPerUnit: r2(buy.grossPerUnit),
-            buyoutGrossPct: r2(buy.grossPct * 100) / 100,
-            leaseFirstPay: r2(lease.firstPay),
-            leaseMonthlyRent: r2(lease.rent),
-            leaseDepositAmt: r2(lease.rent * lease.depositMonths),
-            leaseMinMonths: lease.minMonths,
-            leaseMinRevenue: r2(lease.revPerUnitMinTerm),
-            leaseUnitCostLTV: r2(lease.varPerUnitLTV),
-            leaseLtvNet: r2(lease.ltvNet),
-            leasePaybackMonths: lease.paybackMonths === Infinity ? '∞' : lease.paybackMonths,
+            buyoutPrice: r2(b.price),
+            buyoutVarCost: r2(b.varPerUnit),
+            buyoutGrossPerUnit: r2(b.grossPerUnit),
+            buyoutGrossPct: r2(b.grossPct * 100) / 100,
+            leaseMonthlyRent: r2(l.rent),
+            leaseFirstPayMonths: l.firstPayMonths,
+            leaseDepositMonths: l.depositMonths,
+            leaseMinMonths: l.minMonths,
+            leaseFirstPeriodCashIn: r2(l.firstPeriodCashIn),
+            leaseMinRevenue: r2(l.minTermRevenue),
+            leaseUpfrontVarCost: r2(l.upfrontVarCost),
+            leaseLtvNet: r2(l.ltvNet),
+            leasePaybackMonths: l.paybackMonths === Infinity ? '∞' : l.paybackMonths,
             monthlyFixedCost: r2(avgMonthlyFixedOpex(scenario)),
-            buyoutBreakevenUnits: buy.breakevenUnits === Infinity ? '∞' : r2(buy.breakevenUnits / 12),
-            leaseBreakevenUnits: lease.breakevenUnits === Infinity ? '∞' : r2(lease.breakevenUnits / 12),
+            totalBuyoutUnits: pnl.buyoutTotal,
+            totalLeaseUnits: pnl.leaseTotal,
+            annualRevenue: r2(pnl.totalRevenue),
+            annualNetProfit: r2(pnl.netProfit),
+            netMargin: pnl.totalRevenue > 0 ? r2((pnl.netProfit / pnl.totalRevenue) * 100) / 100 : 0,
             firstNegativeMonth: firstNeg ? firstNeg.m : null,
             maxNegativeCashflow: r2(maxDeficit),
             minCumulative: r2(minCum)
         };
     }
 
-    // ── Top-level compute: returns everything the UI needs ──
-    function computeAll(scenario) {
-        const months = scenario.meta?.cashflowMonths || 24;
-        const buy = computeBuyout(scenario);
-        const lease = computeLease(scenario);
+    // ── Detail row builders ──
+    function buildBuyoutRows(scenario, pnl) {
+        const b = pnl.perUnit.buyout;
+        const p = scenario.product || {};
+        const cb = commissionBreakdown(scenario);
+        const rows = [];
+        const push = (g, n, v, isPct, isTotal) => rows.push({ group: g, name: n, value: v, isPct, isTotal });
+
+        push('假设-政策', '买断售价 (USD)', num(scenario.buyout?.priceUSD));
+        push('假设-成本', '单台基础成本 (USD)', num(p.unitCostUSD));
+        push('假设-成本', '海运 USD/台', num(p.landed?.oceanFreightUSD));
+        push('假设-成本', '进口关税率', num(p.landed?.importDutyPct), true);
+        push('假设-成本', '港口杂费 USD/台', num(p.landed?.portFeesUSD));
+        push('假设-成本', '美国内陆 USD/台', num(p.landed?.usInlandFreightUSD));
+        push('假设-成本', '单台到岸成本合计 (USD)', b.landed);
+        push('假设-成本', '上门培训 USD/客户', num(p.installTrainingUSD));
+        push('假设-成本', '质保 USD/台', num(p.warrantyUSD));
+        push('假设-成本', '客户运输 USD/台', num(p.shippingToCustomerUSD));
+        push('假设-成本', '广告 USD/台', num(p.advertisingUSD));
+        push('假设-提成', '美国成交方 %', cb.us, true);
+        push('假设-提成', '中国引流方 % × 占比', cb.cnRef, true);
+        push('假设-提成', '其他提成 %', cb.other, true);
+        push('假设-提成', '有效综合提成率', cb.total, true);
+        push('假设-提成', '单台提成金额 (USD)', b.commission);
+        push('假设-税率', '联邦企业所得税', num(scenario.tax?.federalCorpPct), true);
+        push('假设-税率', '州企业所得税', num(scenario.tax?.stateCorpPct), true);
+        push('结论', '单台变动成本合计 (USD)', b.varPerUnit, false, true);
+        push('结论', '单台毛利 (USD)', b.grossPerUnit);
+        push('结论', '毛利率', b.grossPct, true);
+        push('结论', '12 月买断总销量 (台)', pnl.buyoutTotal);
+        push('结论', '12 月买断收入 (USD)', pnl.buyoutRevenue);
+        push('结论', '12 月买断变动成本 (USD)', pnl.buyoutVarCost);
+        return rows;
+    }
+
+    function buildLeaseRows(scenario, pnl) {
+        const l = pnl.perUnit.lease;
+        const p = scenario.product || {};
+        const cb = commissionBreakdown(scenario);
+        const rows = [];
+        const push = (g, n, v, isPct, isTotal) => rows.push({ group: g, name: n, value: v, isPct, isTotal });
+
+        push('假设-政策', '月租金 (USD)', l.rent);
+        push('假设-政策', '首期月数', l.firstPayMonths);
+        push('假设-政策', '押金月数', l.depositMonths);
+        push('假设-政策', '最低租期 (月)', l.minMonths);
+        push('假设-政策', '提前退租费 (USD)', num(scenario.lease?.earlyTerminationFeeUSD));
+        push('假设-政策', '首期现金流入 (USD)', l.firstPeriodCashIn);
+        push('假设-成本', '单台到岸成本 (USD)', l.landed);
+        push('假设-成本', '上门培训 USD/客户', num(p.installTrainingUSD));
+        push('假设-成本', '质保 USD/台', num(p.warrantyUSD));
+        push('假设-成本', '客户运输 USD/台', num(p.shippingToCustomerUSD));
+        push('假设-成本', '广告 USD/台', num(p.advertisingUSD));
+        push('假设-提成', '美国成交方 %', cb.us, true);
+        push('假设-提成', '中国引流方 % × 占比', cb.cnRef, true);
+        push('假设-提成', '其他提成 %', cb.other, true);
+        push('假设-提成', '有效综合提成率', cb.total, true);
+        push('假设-提成', '单台提成金额 (USD, 基于 LTV)', l.commission);
+        push('结论', '单台最低租期收入 LTV (USD)', l.minTermRevenue, false, true);
+        push('结论', '单台前期变动成本 (USD)', l.upfrontVarCost);
+        push('结论', '单台 LTV 净收益 (USD)', l.ltvNet);
+        push('结论', '回本月数', l.paybackMonths);
+        push('结论', '12 月租赁新增 (台)', pnl.leaseTotal);
+        push('结论', '12 月租赁收入 (USD)', pnl.leaseRevenue);
+        push('结论', '12 月租赁变动成本 (USD)', pnl.leaseVarCost);
+        return rows;
+    }
+
+    function computeAll(scenario, cashflowMonths) {
+        const months = Math.max(1, Math.min(60, num(cashflowMonths, 12)));
+        const pnl = computePnl(scenario);
         const cashflow = computeCashflow(scenario, months);
-        const kpi = computeKPIs(scenario, buy, lease, cashflow);
+        const kpi = computeKPIs(scenario, pnl, cashflow);
         return {
             kpi,
-            buyout: buy,
-            lease,
+            pnl,
             cashflow,
-            buyoutRows: buildBuyoutRows(scenario, buy),
-            leaseRows: buildLeaseRows(scenario, lease)
+            buyoutRows: buildBuyoutRows(scenario, pnl),
+            leaseRows:  buildLeaseRows(scenario, pnl),
+            // Legacy aliases (for Excel export compatibility)
+            buyout: pnl.perUnit.buyout,
+            lease:  pnl.perUnit.lease
         };
     }
 
-    // ── Utilities for UI number formatting ──
+    // ── Formatters ──
     function fmtUSD(x) {
         const n = num(x);
         return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -530,16 +402,20 @@
         const n = num(x);
         return '¥' + n.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
     }
+    function fmt(x, cur, fxRate) {
+        return cur === 'CNY' ? fmtCNY(toCNY(x, fxRate)) : fmtUSD(x);
+    }
     function fmtPct(x) { return (num(x) * 100).toFixed(2) + '%'; }
     function fmtInt(x) { return Math.round(num(x)).toLocaleString(); }
 
     global.PsFinance = {
         toUSD, toCNY,
         computeLandedUnitCost,
-        computeBuyout, computeLease, computeCashflow, computeKPIs, computeAll,
+        perUnitBuyout, perUnitLease,
+        computePnl, computeCashflow, computeKPIs, computeAll,
         buildBuyoutRows, buildLeaseRows,
-        avgMonthlyFixedOpex, monthlyFixedOpex,
         effectiveCommissionRate, commissionBreakdown,
-        fmtUSD, fmtCNY, fmtPct, fmtInt, r2, num
+        avgMonthlyFixedOpex, monthlyFixedOpex,
+        fmtUSD, fmtCNY, fmt, fmtPct, fmtInt, r2, num
     };
 })(window);
