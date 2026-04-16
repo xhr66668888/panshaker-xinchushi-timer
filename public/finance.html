@@ -666,13 +666,16 @@
             renderBoundField(el, path);
         });
         document.getElementById('curSymbolHint').textContent = displayCurrency === 'CNY' ? '¥' : '$';
+        // Tables with money values in their own markup must be redrawn too.
+        renderOpex();
+        renderCustomCosts();
         recomputeAndRender();
     }
 
     // ── Live recompute ──
     function recomputeAndRender() {
         if (!scenario) return;
-        const N = Number(document.getElementById('cashflowMonths').value) || 24;
+        const N = Number(document.getElementById('cashflowMonths').value) || 12;
         const res = PsFinance.computeAll(scenario, N);
         lastComputed = res;
         renderKpiTable(res.kpi);
@@ -680,6 +683,8 @@
         renderBuyoutTable(res.buyoutRows);
         renderLeaseTable(res.leaseRows, res);
         renderChart(res.cashflow);
+        // Forecast table width follows the selected cashflow window.
+        renderForecast();
         updateCommissionDisplay();
         flashRecalcIndicator();
     }
@@ -889,32 +894,46 @@
         renderCustomCosts();
     };
 
-    // ── Forecast table (two rows, 12 months) ──
+    // ── Forecast table (two rows) — column count follows the cashflow window.
+    // If window is 1, show only month 1; if 12, show months 1..12.
     function renderForecast() {
+        const sel = document.getElementById('cashflowMonths');
+        const N = Math.max(1, Math.min(12, Number(sel?.value) || 12));
         const bf = scenario.forecast?.buyoutMonthlyUnits || [];
         const lf = scenario.forecast?.leaseMonthlyUnits  || [];
         while (bf.length < 12) bf.push(0);
         while (lf.length < 12) lf.push(0);
         let html = '<tr><th>行</th>';
-        for (let i = 1; i <= 12; i++) html += `<th>${i}月</th>`;
+        for (let i = 1; i <= N; i++) html += `<th>${i}月</th>`;
         html += '<th>合计</th></tr>';
         html += '<tr><td class="name">买断月销量 (台)</td>';
         let sumB = 0;
-        for (let i = 0; i < 12; i++) { sumB += Number(bf[i]) || 0; html += `<td><input type="number" min="0" step="1" value="${Number(bf[i])||0}" onchange="updateForecast('buyout',${i},this.value)"></td>`; }
+        for (let i = 0; i < N; i++) { sumB += Number(bf[i]) || 0; html += `<td><input type="number" min="0" step="1" value="${Number(bf[i])||0}" onchange="updateForecast('buyout',${i},this.value)"></td>`; }
         html += `<td><b>${sumB}</b></td></tr>`;
         html += '<tr><td class="name">租赁月新增 (台)</td>';
         let sumL = 0;
-        for (let i = 0; i < 12; i++) { sumL += Number(lf[i]) || 0; html += `<td><input type="number" min="0" step="1" value="${Number(lf[i])||0}" onchange="updateForecast('lease',${i},this.value)"></td>`; }
+        for (let i = 0; i < N; i++) { sumL += Number(lf[i]) || 0; html += `<td><input type="number" min="0" step="1" value="${Number(lf[i])||0}" onchange="updateForecast('lease',${i},this.value)"></td>`; }
         html += `<td><b>${sumL}</b></td></tr>`;
+        // When window is 1, zero out months 2..12 so the computation only reflects month 1.
+        if (N === 1) {
+            html += '<tr><td colspan="3" style="color:#666;font-size:11px;padding:4px;">单月模式：第 2-12 月销量按 0 计入。切回 12 月模式可还原 12 月完整预测。</td></tr>';
+        }
         document.getElementById('forecastTable').innerHTML = html;
     }
+
     window.updateForecast = function (which, i, val) {
         const n = Number(val) || 0;
         const key = which === 'buyout' ? 'buyoutMonthlyUnits' : 'leaseMonthlyUnits';
         if (!scenario.forecast[key]) scenario.forecast[key] = new Array(12).fill(0);
         scenario.forecast[key][i] = n;
+        // In single-month mode, clear months 2..12 so the cashflow / P&L
+        // only reflects the first month like the user expects.
+        const sel = document.getElementById('cashflowMonths');
+        const N = Math.max(1, Math.min(12, Number(sel?.value) || 12));
+        if (N === 1) {
+            for (let j = 1; j < 12; j++) scenario.forecast[key][j] = 0;
+        }
         recomputeAndRender();
-        renderForecast();
     };
 
     // ── State tax table ──
