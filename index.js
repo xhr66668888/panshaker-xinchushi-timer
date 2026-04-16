@@ -19,6 +19,19 @@ const ZIPPO_ENDPOINT = 'https://api.zippopotam.us/us/';
 // In-memory FX cache (1 hour)
 let _fxCache = { ts: 0, data: null };
 
+// In-memory AI job store. Long reasoning calls (GLM-5.1 up to 3-4 min) used to
+// be held open as a single HTTP request which kept getting cut by Azure's
+// front-end proxy at 30-60 s. Now the POST kicks off a background worker and
+// the client polls via GET — neither request ever needs to stay open long.
+const aiJobs = new Map();
+const AI_JOB_TTL_MS = 15 * 60 * 1000; // purge jobs older than 15 min
+setInterval(() => {
+    const now = Date.now();
+    for (const [id, job] of aiJobs) {
+        if (now - job.createdAt > AI_JOB_TTL_MS) aiJobs.delete(id);
+    }
+}, 60 * 1000);
+
 app.use(express.static('public'));
 app.use(express.json({ limit: '5mb' }));
 
@@ -803,10 +816,60 @@ app.put('/api/finance/tax-table', (req, res) => {
     });
 });
 
-// AI pricing suggestion via Zhipu GLM
+// AI pricing suggestion via Zhipu GLM — async job pattern.
+// POST kicks off a background worker and returns a jobId in <1 s.
+// Client polls GET /api/finance/ai-suggest/:jobId every 2 s for status.
 app.post('/api/finance/ai-suggest', async (req, res) => {
     const scenario = req.body || {};
     if (!scenario || typeof scenario !== 'object') return jsonErr(res, 400, '需要提交 scenario JSON');
+
+    const jobId = 'ai_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+    const job = {
+        id: jobId,
+        status: 'running',
+        createdAt: Date.now(),
+        startedAt: Date.now(),
+        elapsedMs: 0,
+        suggestion: null,
+        error: null,
+        detail: null,
+        finishReason: null,
+        usage: null,
+        raw: null,
+        model: GLM_MODEL
+    };
+    aiJobs.set(jobId, job);
+    // Kick off background work; never await the promise.
+    runAiJob(job, scenario).catch((err) => {
+        job.status = 'error';
+        job.error = 'AI worker 异常';
+        job.detail = String(err?.message || err);
+        job.elapsedMs = Date.now() - job.startedAt;
+    });
+    res.json({ jobId, status: 'running' });
+});
+
+// Poll endpoint — fast, cheap, survives any proxy.
+app.get('/api/finance/ai-suggest/:jobId', (req, res) => {
+    const job = aiJobs.get(req.params.jobId);
+    if (!job) return res.status(404).json({ error: '任务不存在或已过期，请重新发起' });
+    const elapsedMs = job.status === 'running' ? Date.now() - job.startedAt : job.elapsedMs;
+    res.json({
+        jobId: job.id,
+        status: job.status,
+        elapsedMs,
+        suggestion: job.suggestion,
+        error: job.error,
+        detail: job.detail,
+        finishReason: job.finishReason,
+        usage: job.usage,
+        raw: job.raw,
+        model: job.model
+    });
+});
+
+// Actual GLM streaming worker, runs detached from any HTTP response.
+async function runAiJob(job, scenario) {
 
     const systemPrompt = [
         '你是 Panshaker 美国分公司（Delaware C-Corp，炒菜机器人 B2B）资深定价与租赁政策顾问。',
@@ -888,40 +951,7 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
         }
     };
 
-    // Keep every intermediate hop alive while GLM thinks for 60-180 seconds.
-    // Some corporate proxies / Azure front-end cut idle TCP after ~30-60 s
-    // even when data is "about" to flow. We therefore:
-    //   1. Flush response headers BEFORE awaiting any upstream call.
-    //   2. Write an initial newline right away so the client's TCP stack
-    //      sees bytes immediately.
-    //   3. Emit a newline heartbeat every 5 s (not 15 s) — small enough to
-    //      slip under any aggressive intermediate timeout.
-    //   4. Force a socket uncork after each write in case Express buffers.
-    // Browsers and JSON.parse ignore leading whitespace/newlines, so the
-    // final JSON payload still round-trips cleanly.
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
-    const writeBeat = () => {
-        try {
-            res.write('\n');
-            if (res.socket && !res.socket.destroyed) {
-                res.socket.uncork && res.socket.uncork();
-            }
-        } catch (_) {}
-    };
-    writeBeat(); // prime the connection with an immediate byte
-    const heartbeat = setInterval(writeBeat, 5000);
-    req.on('close', () => clearInterval(heartbeat));
-    const finish = (code, body) => {
-        clearInterval(heartbeat);
-        if (code !== 200) res.statusCode = code;
-        try { res.end(JSON.stringify(body)); } catch (_) {}
-    };
-
     try {
-        const started = Date.now();
         const resp = await fetch(GLM_ENDPOINT, {
             method: 'POST',
             headers: {
@@ -933,9 +963,6 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
                 model: GLM_MODEL,
                 temperature: 0.2,
                 max_tokens: 8192,
-                // Streaming: tokens flow as soon as they're ready. Keeps the TCP
-                // connection active (no Azure/Express idle cut) and lets very
-                // long reasoning runs finish naturally without an artificial cap.
                 stream: true,
                 response_format: { type: 'json_object' },
                 messages: [
@@ -948,12 +975,15 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
 
         if (!resp.ok) {
             const text = await resp.text().catch(() => '');
-            const elapsed = Date.now() - started;
             console.error('GLM error:', resp.status, text.slice(0, 500));
-            return finish(502, { error: 'AI 服务调用失败', status: resp.status, elapsedMs: elapsed, detail: text.slice(0, 500) });
+            job.status = 'error';
+            job.error = 'AI 服务调用失败';
+            job.detail = 'HTTP ' + resp.status + ' ' + text.slice(0, 500);
+            job.elapsedMs = Date.now() - job.startedAt;
+            return;
         }
 
-        // Parse SSE stream: each data line is a JSON chunk with delta content.
+        // SSE stream parser: aggregate delta content across chunks.
         let content = '';
         let finishReason = null;
         let usage = null;
@@ -979,40 +1009,38 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
                 }
             }
         } catch (streamErr) {
-            const elapsed = Date.now() - started;
             console.error('GLM stream error:', streamErr);
-            const partial = content.slice(0, 800);
-            return finish(502, {
-                error: 'AI 流式读取异常 (可能超时)',
-                elapsedMs: elapsed,
-                detail: String(streamErr?.message || streamErr),
-                raw: partial
-            });
+            job.status = 'error';
+            job.error = 'AI 流式读取异常 (可能超时)';
+            job.detail = String(streamErr?.message || streamErr);
+            job.raw = content.slice(0, 2000);
+            job.elapsedMs = Date.now() - job.startedAt;
+            return;
         }
 
-        const elapsed = Date.now() - started;
         // Reasoning models sometimes wrap JSON in ```json ... ``` even when told not to.
         content = content.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
         let suggestion = null;
         try {
             suggestion = JSON.parse(content);
-        } catch (e) {
+        } catch (_) {
             const m = content.match(/\{[\s\S]*\}/);
             if (m) { try { suggestion = JSON.parse(m[0]); } catch (_) {} }
         }
+
         if (!suggestion) {
             const hint = finishReason === 'length'
                 ? '（AI 输出被 max_tokens 截断，请稍后重试或缩小场景复杂度）'
                 : (content ? '（AI 返回了内容但不是合法 JSON，见下方原文）' : '（AI 返回为空）');
-            return finish(502, {
-                error: 'AI 返回非 JSON ' + hint,
-                elapsedMs: elapsed,
-                finishReason,
-                usage,
-                raw: content.slice(0, 2000)
-            });
+            job.status = 'error';
+            job.error = 'AI 返回非 JSON ' + hint;
+            job.finishReason = finishReason;
+            job.usage = usage;
+            job.raw = content.slice(0, 2000);
+            job.elapsedMs = Date.now() - job.startedAt;
+            return;
         }
-        // Normalize percentage fields: if AI returns integer 3 instead of 0.03 for a rate, auto-fix.
+
         const normRate = (v) => {
             const n = Number(v);
             if (!Number.isFinite(n)) return 0;
@@ -1023,7 +1051,6 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
                 if (suggestion.commissionSplit[k] != null) suggestion.commissionSplit[k] = normRate(suggestion.commissionSplit[k]);
             });
         }
-        // Ensure plans array is always present so UI can render 3 cards even if AI drops some fields
         if (suggestion.leaseOptimization && Array.isArray(suggestion.leaseOptimization.plans)) {
             suggestion.leaseOptimization.plans = suggestion.leaseOptimization.plans.map(p => {
                 p = p || {};
@@ -1035,13 +1062,24 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
                 return p;
             });
         }
-        finish(200, { success: true, elapsedMs: elapsed, model: GLM_MODEL, usage, finishReason, suggestion, raw: content });
+
+        job.status = 'done';
+        job.suggestion = suggestion;
+        job.finishReason = finishReason;
+        job.usage = usage;
+        job.raw = content.slice(0, 2000);
+        job.elapsedMs = Date.now() - job.startedAt;
     } catch (err) {
         console.error('GLM fetch error:', err);
-        const msg = String(err?.name === 'TimeoutError' || /abort|timeout/i.test(String(err?.message)) ? 'AI 推理超时，请重试或减少场景复杂度' : (err?.message || err));
-        finish(502, { error: 'AI 请求异常', detail: msg });
+        const msg = String(err?.name === 'TimeoutError' || /abort|timeout/i.test(String(err?.message))
+            ? 'AI 推理超时 (>4 min)，请稍后重试'
+            : (err?.message || err));
+        job.status = 'error';
+        job.error = 'AI 请求异常';
+        job.detail = msg;
+        job.elapsedMs = Date.now() - job.startedAt;
     }
-});
+}
 
 // ZIP → state/city lookup via zippopotam.us + auto-pick default sales tax
 app.get('/api/finance/zip/:zip', async (req, res) => {

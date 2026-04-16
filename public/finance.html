@@ -1528,48 +1528,80 @@
         const result = document.getElementById('aiResult');
         btn.disabled = true; result.innerHTML = '';
         const t0 = Date.now();
-        let tick = setInterval(() => { status.textContent = '调用 GLM-5.1 旗舰模型中 (已 ' + Math.floor((Date.now() - t0) / 1000) + 's · 流式输出，最长 4 分钟)'; }, 500);
+        let tick = null;
+
+        const fail = (title, msg, extra) => {
+            if (tick) clearInterval(tick);
+            status.textContent = '';
+            result.innerHTML = `<div class="ai-section" style="color:#900;">
+                <h4>${escapeHtml(title)}</h4>
+                <p>${escapeHtml(msg)}</p>
+                ${extra || ''}
+            </div>`;
+        };
+
         try {
-            const r = await fetch('/api/finance/ai-suggest', {
+            // Step 1: kick off background job — fast response, no Azure proxy fight.
+            const kickoff = await fetch('/api/finance/ai-suggest', {
                 method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                 body: JSON.stringify(scenario)
             });
-            const raw = await r.text();
-            clearInterval(tick);
-            const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-            let j = null;
-            try { j = JSON.parse(raw); } catch (_) {}
-            if (!j) {
-                status.textContent = '';
-                result.innerHTML = `<div class="ai-section" style="color:#900;"><h4>服务端返回非 JSON (HTTP ${r.status}, ${elapsed}s)</h4><p style="font-family:monospace;font-size:11px;">${escapeHtml(raw.slice(0, 500))}</p></div>`;
-                return;
+            const kickoffTxt = await kickoff.text();
+            let koj = null;
+            try { koj = JSON.parse(kickoffTxt); } catch (_) {}
+            if (!kickoff.ok || !koj || !koj.jobId) {
+                return fail('启动 AI 任务失败 (HTTP ' + kickoff.status + ')',
+                    koj?.error || '未知错误',
+                    kickoffTxt && !koj ? `<pre style="font-family:monospace;font-size:11px;background:#fff;padding:4px;border:1px inset #dfdfdf;white-space:pre-wrap;">${escapeHtml(kickoffTxt.slice(0, 400))}</pre>` : '');
             }
-            if (!r.ok || !j.suggestion) {
-                status.textContent = '';
-                const rawBlock = j.raw
-                    ? `<details style="margin-top:4px;"><summary style="cursor:pointer;">AI 原始返回 (点击展开)</summary><pre style="font-family:monospace;font-size:11px;background:#fff;padding:6px;border:1px inset #dfdfdf;white-space:pre-wrap;max-height:320px;overflow:auto;">${escapeHtml(String(j.raw).slice(0, 2000))}</pre></details>`
-                    : '';
-                const finishBlock = j.finishReason ? `<p>finish_reason: <b>${escapeHtml(j.finishReason)}</b></p>` : '';
-                const usageBlock = j.usage ? `<p style="font-size:11px;color:#666;">tokens: prompt ${j.usage.prompt_tokens}, completion ${j.usage.completion_tokens}${j.usage.completion_tokens_details?.reasoning_tokens ? ' (reasoning ' + j.usage.completion_tokens_details.reasoning_tokens + ')' : ''}</p>` : '';
-                result.innerHTML = `<div class="ai-section" style="color:#900;">
-                    <h4>调用失败 (HTTP ${r.status}, ${elapsed}s)</h4>
-                    <p>${escapeHtml(j.error || 'unknown')}</p>
-                    ${j.detail ? `<p>${escapeHtml(String(j.detail).slice(0,400))}</p>` : ''}
-                    ${finishBlock}
-                    ${usageBlock}
-                    ${rawBlock}
-                    <p style="margin-top:6px;font-size:11px;">建议：重试一次；若反复失败，AI 可能在反思过程中被截断。</p>
-                </div>`;
-                return;
+            const jobId = koj.jobId;
+
+            // Step 2: poll every 2 s until status transitions away from 'running'.
+            tick = setInterval(() => {
+                status.textContent = '调用 GLM-5.1 旗舰模型中 (已 ' + Math.floor((Date.now() - t0) / 1000) + 's · 后台任务 #' + jobId.slice(-8) + ')';
+            }, 500);
+
+            const maxWaitMs = 5 * 60 * 1000;
+            while (Date.now() - t0 < maxWaitMs) {
+                await new Promise(r => setTimeout(r, 2000));
+                const poll = await fetch('/api/finance/ai-suggest/' + encodeURIComponent(jobId));
+                if (poll.status === 404) {
+                    return fail('任务已过期', '请再次点击"调用 AI 生成建议"重新发起。');
+                }
+                if (!poll.ok) continue; // transient hiccup, keep polling
+                const j = await poll.json();
+                if (j.status === 'running') continue;
+
+                clearInterval(tick); tick = null;
+                const elapsed = ((j.elapsedMs || Date.now() - t0) / 1000).toFixed(1);
+
+                if (j.status === 'error') {
+                    const rawBlock = j.raw
+                        ? `<details style="margin-top:4px;"><summary style="cursor:pointer;">AI 原始返回 (点击展开)</summary><pre style="font-family:monospace;font-size:11px;background:#fff;padding:6px;border:1px inset #dfdfdf;white-space:pre-wrap;max-height:320px;overflow:auto;">${escapeHtml(String(j.raw).slice(0, 2000))}</pre></details>`
+                        : '';
+                    const finishBlock = j.finishReason ? `<p>finish_reason: <b>${escapeHtml(j.finishReason)}</b></p>` : '';
+                    const usageBlock = j.usage ? `<p style="font-size:11px;color:#666;">tokens: prompt ${j.usage.prompt_tokens}, completion ${j.usage.completion_tokens}${j.usage.completion_tokens_details?.reasoning_tokens ? ' (reasoning ' + j.usage.completion_tokens_details.reasoning_tokens + ')' : ''}</p>` : '';
+                    return fail('调用失败 (' + elapsed + 's)',
+                        j.error || 'unknown',
+                        (j.detail ? `<p>${escapeHtml(String(j.detail).slice(0, 400))}</p>` : '') + finishBlock + usageBlock + rawBlock);
+                }
+
+                if (j.status === 'done' && j.suggestion) {
+                    lastAiSuggestion = j.suggestion;
+                    renderAiSuggestion(j.suggestion);
+                    const usage = j.usage ? ` · tokens ${j.usage.total_tokens}` : '';
+                    status.textContent = '已获取 · ' + elapsed + 's' + usage;
+                    return;
+                }
             }
-            lastAiSuggestion = j.suggestion;
-            renderAiSuggestion(j.suggestion);
-            const usage = j.usage ? ` · tokens ${j.usage.total_tokens}` : '';
-            status.textContent = `已获取 · ${elapsed}s${usage}`;
+
+            return fail('轮询超时 (5 分钟)', 'AI 任务仍在运行但未在 5 分钟内完成，请稍后重试。');
         } catch (e) {
-            clearInterval(tick); status.textContent = '';
-            result.innerHTML = `<div class="ai-section" style="color:#900;"><h4>网络异常</h4><p>${escapeHtml(e.message || e)}</p></div>`;
-        } finally { btn.disabled = false; }
+            return fail('网络异常', e.message || String(e));
+        } finally {
+            btn.disabled = false;
+            if (tick) clearInterval(tick);
+        }
     }
 
     function renderAiSuggestion(s) {
