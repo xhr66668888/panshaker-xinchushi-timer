@@ -151,6 +151,23 @@
         .unit-cost-banner .breakdown span { margin-right: 8px; white-space: nowrap; }
         .unit-cost-banner .breakdown b { color: #000; }
 
+        /* Customer-facing price strip (shows pre-tax vs post-sales-tax) */
+        .customer-price-strip {
+            background: #eaf4ff;
+            border: 1px solid #6b9ac8;
+            padding: 6px 10px;
+            margin: 0 0 10px 0;
+            font-size: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+        }
+        .customer-price-strip .head { font-weight: bold; color: #1a4a78; margin-right: 4px; }
+        .customer-price-strip b { color: #000; font-family: 'Courier New', monospace; }
+        .customer-price-strip .zero-note { color: #005500; font-style: italic; }
+        .customer-price-strip .nonzero-note { color: #8a0000; font-size: 11px; }
+
         #langToggle {
             position: fixed; bottom: calc(10px + env(safe-area-inset-bottom)); right: 10px;
             z-index: 9999; padding: 2px 8px; font-size: 12px; cursor: pointer;
@@ -214,12 +231,14 @@
             <div class="col" style="flex:2;">
                 <div class="kpi-grid" id="kpiInputs">
                     <div class="field">
-                        <label data-i18n="kpiBuyoutPrice">买断售价</label>
+                        <label data-i18n="kpiBuyoutPrice">买断售价 (税前)</label>
                         <input type="number" step="1" data-money data-bind="buyout.priceUSD">
+                        <small data-i18n="kpiBuyoutPriceHint">Sales Tax 由客户州代收代缴，不吃公司收入</small>
                     </div>
                     <div class="field">
-                        <label data-i18n="kpiLeaseRent">月租金</label>
+                        <label data-i18n="kpiLeaseRent">月租金 (税前)</label>
                         <input type="number" step="1" data-money data-bind="lease.monthlyRentUSD">
+                        <small data-i18n="kpiLeaseRentHint">Sales Tax 另行向客户代收</small>
                     </div>
                     <div class="field">
                         <label data-i18n="kpiFirstPayMonths">首期月数</label>
@@ -234,12 +253,12 @@
                         <input type="number" step="1" min="1" data-bind="lease.minMonths">
                     </div>
                     <div class="field">
-                        <label data-i18n="kpiActivationFee">激活费 (一次性不退)</label>
+                        <label data-i18n="kpiActivationFee">激活费 (税前，一次性不退)</label>
                         <input type="number" step="1" data-money data-bind="lease.activationFeeUSD">
                         <small data-i18n="kpiActivationFeeHint">建议 $1000-3000 改善首月现金流</small>
                     </div>
                     <div class="field">
-                        <label data-i18n="kpiEtf">提前退租费</label>
+                        <label data-i18n="kpiEtf">提前退租费 (税前)</label>
                         <input type="number" step="1" data-money data-bind="lease.earlyTerminationFeeUSD">
                     </div>
                     <div class="field">
@@ -270,6 +289,7 @@
                     <div class="big-values" id="unitCostBigValues">-</div>
                     <div class="breakdown" id="unitCostBreakdown">-</div>
                 </div>
+                <div class="customer-price-strip" id="customerPriceStrip" style="display:none;"></div>
             </div>
             <div class="col" style="flex:1;min-width:280px;">
                 <div class="alerts">
@@ -841,7 +861,36 @@
         renderEmployees();
         updateCommissionDisplay();
         renderUnitCostBanner();
+        renderCustomerPriceStrip();
         flashRecalcIndicator();
+    }
+
+    // Show what the customer actually pays once Sales Tax is added on top of the
+    // pre-tax prices. Sales tax is pass-through — never kept by the company.
+    function renderCustomerPriceStrip() {
+        const strip = document.getElementById('customerPriceStrip');
+        if (!strip) return;
+        const state = scenario.meta?.companyState || 'DE';
+        const rate = Number(taxTable.salesTax?.[state]) || 0;
+        const buyoutPreTax = Number(scenario.buyout?.priceUSD) || 0;
+        const rentPreTax   = Number(scenario.lease?.monthlyRentUSD) || 0;
+        const actPreTax    = Number(scenario.lease?.activationFeeUSD) || 0;
+        const buyoutPost = buyoutPreTax * (1 + rate);
+        const rentPost   = rentPreTax   * (1 + rate);
+        const actPost    = actPreTax    * (1 + rate);
+        strip.style.display = 'flex';
+        const ratePct = (rate * 100).toFixed(2);
+        if (rate <= 0) {
+            strip.innerHTML = `<span class="head">客户到手价 [${state}]</span>
+                <span>Sales Tax <b>${ratePct}%</b></span>
+                <span class="zero-note">不加税，买断 <b>${fmtMoney(buyoutPreTax)}</b> · 月租 <b>${fmtMoney(rentPreTax)}</b>${actPreTax ? ' · 激活费 <b>' + fmtMoney(actPreTax) + '</b>' : ''}</span>`;
+        } else {
+            strip.innerHTML = `<span class="head">客户到手价 [${state}]</span>
+                <span>Sales Tax <b>${ratePct}%</b> (代收代缴, 不计公司收入)</span>
+                <span>买断 <b>${fmtMoney(buyoutPost)}</b> <span class="nonzero-note">(含税 ${fmtMoney(buyoutPost - buyoutPreTax)})</span></span>
+                <span>月租 <b>${fmtMoney(rentPost)}</b> <span class="nonzero-note">(含税 ${fmtMoney(rentPost - rentPreTax)})</span></span>
+                ${actPreTax ? `<span>激活费 <b>${fmtMoney(actPost)}</b> <span class="nonzero-note">(含税 ${fmtMoney(actPost - actPreTax)})</span></span>` : ''}`;
+        }
     }
 
     function renderUnitCostBanner() {
