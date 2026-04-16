@@ -1528,7 +1528,7 @@
         const result = document.getElementById('aiResult');
         btn.disabled = true; result.innerHTML = '';
         const t0 = Date.now();
-        let tick = setInterval(() => { status.textContent = '调用 GLM-5.1 旗舰模型中 (已 ' + Math.floor((Date.now() - t0) / 1000) + 's，通常 20-90 秒)'; }, 500);
+        let tick = setInterval(() => { status.textContent = '调用 GLM-5.1 旗舰模型中 (已 ' + Math.floor((Date.now() - t0) / 1000) + 's · 流式输出，最长 4 分钟)'; }, 500);
         try {
             const r = await fetch('/api/finance/ai-suggest', {
                 method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },

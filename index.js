@@ -9,7 +9,10 @@ const port = process.env.PORT || 5000;
 const GLM_API_KEY = 'af5c0dee3b10490d9d6003cd4f33813d.YI88kpKxhBroZTQ7';
 const GLM_ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 const GLM_MODEL = process.env.GLM_MODEL || 'glm-5.1';
-const GLM_TIMEOUT_MS = 120000; // flagship GLM-5.1 can take up to 60-90s for full prompts
+// GLM-5.1 reasoning can cross 2 minutes on the full prompt. We stream the
+// response so the TCP connection stays active (no Azure/Express idle cut)
+// and only wall-clock-abort after 4 minutes as a true safety net.
+const GLM_TIMEOUT_MS = 240000;
 const FX_ENDPOINT = 'https://open.er-api.com/v6/latest/USD';
 const ZIPPO_ENDPOINT = 'https://api.zippopotam.us/us/';
 
@@ -885,21 +888,40 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
         }
     };
 
+    // Azure App Service has a 230s front-end idle timeout; we proactively flush
+    // a single space byte every ~15s while waiting on GLM. The browser's fetch
+    // still buffers the whole response, and JSON.parse handles leading
+    // whitespace gracefully, so the final payload round-trips cleanly.
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+    const heartbeat = setInterval(() => {
+        try { res.write(' '); if (res.flush) res.flush(); } catch (_) {}
+    }, 15000);
+    req.on('close', () => clearInterval(heartbeat));
+    const finish = (code, body) => {
+        clearInterval(heartbeat);
+        if (code !== 200) res.statusCode = code;
+        try { res.end(JSON.stringify(body)); } catch (_) {}
+    };
+
     try {
         const started = Date.now();
         const resp = await fetch(GLM_ENDPOINT, {
             method: 'POST',
             headers: {
                 'Authorization': 'Bearer ' + GLM_API_KEY,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Accept': 'text/event-stream'
             },
             body: JSON.stringify({
                 model: GLM_MODEL,
                 temperature: 0.2,
-                // GLM-5.1 is a reasoning model with large internal chain-of-thought;
-                // reasoning_tokens can eat 2k-4k before any user-visible output.
-                // 8192 gives ample headroom so the final JSON isn't truncated.
                 max_tokens: 8192,
+                // Streaming: tokens flow as soon as they're ready. Keeps the TCP
+                // connection active (no Azure/Express idle cut) and lets very
+                // long reasoning runs finish naturally without an artificial cap.
+                stream: true,
                 response_format: { type: 'json_object' },
                 messages: [
                     { role: 'system', content: systemPrompt },
@@ -908,19 +930,52 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
             }),
             signal: AbortSignal.timeout(GLM_TIMEOUT_MS)
         });
-        const text = await resp.text();
-        const elapsed = Date.now() - started;
+
         if (!resp.ok) {
+            const text = await resp.text().catch(() => '');
+            const elapsed = Date.now() - started;
             console.error('GLM error:', resp.status, text.slice(0, 500));
-            return res.status(502).json({ error: 'AI 服务调用失败', status: resp.status, elapsedMs: elapsed, detail: text.slice(0, 500) });
+            return finish(502, { error: 'AI 服务调用失败', status: resp.status, elapsedMs: elapsed, detail: text.slice(0, 500) });
         }
-        let payload;
-        try { payload = JSON.parse(text); } catch (e) {
-            return res.status(502).json({ error: 'AI 返回解析失败', elapsedMs: elapsed, raw: text.slice(0, 800) });
+
+        // Parse SSE stream: each data line is a JSON chunk with delta content.
+        let content = '';
+        let finishReason = null;
+        let usage = null;
+        const decoder = new TextDecoder();
+        let buffer = '';
+        try {
+            for await (const chunk of resp.body) {
+                buffer += decoder.decode(chunk, { stream: true });
+                let nl;
+                while ((nl = buffer.indexOf('\n')) !== -1) {
+                    const line = buffer.slice(0, nl).trim();
+                    buffer = buffer.slice(nl + 1);
+                    if (!line.startsWith('data:')) continue;
+                    const data = line.slice(5).trim();
+                    if (!data || data === '[DONE]') continue;
+                    try {
+                        const parsed = JSON.parse(data);
+                        const delta = parsed.choices?.[0]?.delta;
+                        if (delta?.content) content += delta.content;
+                        if (parsed.choices?.[0]?.finish_reason) finishReason = parsed.choices[0].finish_reason;
+                        if (parsed.usage) usage = parsed.usage;
+                    } catch (_) { /* skip malformed SSE chunk */ }
+                }
+            }
+        } catch (streamErr) {
+            const elapsed = Date.now() - started;
+            console.error('GLM stream error:', streamErr);
+            const partial = content.slice(0, 800);
+            return finish(502, {
+                error: 'AI 流式读取异常 (可能超时)',
+                elapsedMs: elapsed,
+                detail: String(streamErr?.message || streamErr),
+                raw: partial
+            });
         }
-        const finishReason = payload?.choices?.[0]?.finish_reason || null;
-        const usage = payload?.usage || null;
-        let content = payload?.choices?.[0]?.message?.content || '';
+
+        const elapsed = Date.now() - started;
         // Reasoning models sometimes wrap JSON in ```json ... ``` even when told not to.
         content = content.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
         let suggestion = null;
@@ -934,7 +989,7 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
             const hint = finishReason === 'length'
                 ? '（AI 输出被 max_tokens 截断，请稍后重试或缩小场景复杂度）'
                 : (content ? '（AI 返回了内容但不是合法 JSON，见下方原文）' : '（AI 返回为空）');
-            return res.status(502).json({
+            return finish(502, {
                 error: 'AI 返回非 JSON ' + hint,
                 elapsedMs: elapsed,
                 finishReason,
@@ -965,11 +1020,11 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
                 return p;
             });
         }
-        res.json({ success: true, elapsedMs: elapsed, model: GLM_MODEL, usage: payload?.usage, suggestion, raw: content });
+        finish(200, { success: true, elapsedMs: elapsed, model: GLM_MODEL, usage, finishReason, suggestion, raw: content });
     } catch (err) {
         console.error('GLM fetch error:', err);
         const msg = String(err?.name === 'TimeoutError' || /abort|timeout/i.test(String(err?.message)) ? 'AI 推理超时，请重试或减少场景复杂度' : (err?.message || err));
-        res.status(502).json({ error: 'AI 请求异常', detail: msg });
+        finish(502, { error: 'AI 请求异常', detail: msg });
     }
 });
 
@@ -1355,6 +1410,13 @@ app.post('/api/finance/export', async (req, res) => {
 });
 
 // Start Server for Cloud Environments (0.0.0.0)
-app.listen(port, '0.0.0.0', () => {
+const server = app.listen(port, '0.0.0.0', () => {
     console.log(`Server running on port ${port} (0.0.0.0)`);
 });
+// Allow long-running AI streaming responses without tripping Node's default
+// request timeout (5 min). Azure default front-end idle timeout is 230s,
+// but because GLM is streaming data the TCP keep-alive keeps the connection
+// live across the full 4-minute budget.
+server.requestTimeout = 0;
+server.headersTimeout = 305000;
+server.keepAliveTimeout = 305000;
