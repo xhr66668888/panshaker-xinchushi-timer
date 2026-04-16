@@ -896,7 +896,10 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
             body: JSON.stringify({
                 model: GLM_MODEL,
                 temperature: 0.2,
-                max_tokens: 3500,
+                // GLM-5.1 is a reasoning model with large internal chain-of-thought;
+                // reasoning_tokens can eat 2k-4k before any user-visible output.
+                // 8192 gives ample headroom so the final JSON isn't truncated.
+                max_tokens: 8192,
                 response_format: { type: 'json_object' },
                 messages: [
                     { role: 'system', content: systemPrompt },
@@ -915,8 +918,10 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
         try { payload = JSON.parse(text); } catch (e) {
             return res.status(502).json({ error: 'AI 返回解析失败', elapsedMs: elapsed, raw: text.slice(0, 800) });
         }
+        const finishReason = payload?.choices?.[0]?.finish_reason || null;
+        const usage = payload?.usage || null;
         let content = payload?.choices?.[0]?.message?.content || '';
-        // The vision model sometimes wraps JSON in ```json ... ``` even when told not to.
+        // Reasoning models sometimes wrap JSON in ```json ... ``` even when told not to.
         content = content.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
         let suggestion = null;
         try {
@@ -926,7 +931,16 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
             if (m) { try { suggestion = JSON.parse(m[0]); } catch (_) {} }
         }
         if (!suggestion) {
-            return res.status(502).json({ error: 'AI 返回非 JSON', elapsedMs: elapsed, raw: content.slice(0, 800) });
+            const hint = finishReason === 'length'
+                ? '（AI 输出被 max_tokens 截断，请稍后重试或缩小场景复杂度）'
+                : (content ? '（AI 返回了内容但不是合法 JSON，见下方原文）' : '（AI 返回为空）');
+            return res.status(502).json({
+                error: 'AI 返回非 JSON ' + hint,
+                elapsedMs: elapsed,
+                finishReason,
+                usage,
+                raw: content.slice(0, 2000)
+            });
         }
         // Normalize percentage fields: if AI returns integer 3 instead of 0.03 for a rate, auto-fix.
         const normRate = (v) => {
