@@ -168,6 +168,37 @@
         .customer-price-strip .zero-note { color: #005500; font-style: italic; }
         .customer-price-strip .nonzero-note { color: #8a0000; font-size: 11px; }
 
+        /* Break-even banner — super prominent, big numbers */
+        .breakeven-banner {
+            background: linear-gradient(90deg, #d0f0ff 0%, #b5e4ff 100%);
+            border: 2px ridge #357bb0;
+            padding: 10px 14px;
+            margin: 0 0 10px 0;
+            display: flex;
+            gap: 14px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .breakeven-banner .title {
+            font-weight: bold; font-size: 14px; color: #0f4075;
+            padding-right: 12px; border-right: 2px solid #357bb0;
+            white-space: nowrap;
+        }
+        .breakeven-banner .item { display: flex; flex-direction: column; gap: 2px; min-width: 150px; }
+        .breakeven-banner .item .label { font-size: 12px; color: #0f4075; }
+        .breakeven-banner .item .value {
+            font-size: 22px; font-weight: bold; font-family: 'Courier New', monospace;
+            color: #8a0000;
+            line-height: 1;
+        }
+        .breakeven-banner .item .sub { font-size: 11px; color: #555; }
+        .breakeven-banner .formula {
+            flex: 1; font-size: 11px; color: #333;
+            padding-left: 10px; border-left: 1px dashed #357bb0; line-height: 1.5;
+            min-width: 240px;
+        }
+        .breakeven-banner .infeasible { color: #c00; font-weight: bold; }
+
         #langToggle {
             position: fixed; bottom: calc(10px + env(safe-area-inset-bottom)); right: 10px;
             z-index: 9999; padding: 2px 8px; font-size: 12px; cursor: pointer;
@@ -290,6 +321,20 @@
                     <div class="breakdown" id="unitCostBreakdown">-</div>
                 </div>
                 <div class="customer-price-strip" id="customerPriceStrip" style="display:none;"></div>
+                <div class="breakeven-banner" id="breakevenBanner">
+                    <div class="title" data-i18n="breakevenTitle">保本线 (年度)</div>
+                    <div class="item">
+                        <span class="label" data-i18n="breakevenBuyoutLabel">全部卖买断</span>
+                        <b class="value" id="breakevenBuyoutValue">-</b>
+                        <span class="sub" id="breakevenBuyoutSub">-</span>
+                    </div>
+                    <div class="item">
+                        <span class="label" data-i18n="breakevenLeaseLabel">全部做租赁</span>
+                        <b class="value" id="breakevenLeaseValue">-</b>
+                        <span class="sub" id="breakevenLeaseSub">-</span>
+                    </div>
+                    <div class="formula" id="breakevenFormula">-</div>
+                </div>
             </div>
             <div class="col" style="flex:1;min-width:280px;">
                 <div class="alerts">
@@ -869,7 +914,54 @@
         updateCommissionDisplay();
         renderUnitCostBanner();
         renderCustomerPriceStrip();
+        renderBreakevenBanner(res.breakeven);
         flashRecalcIndicator();
+    }
+
+    // Lazy-person break-even readout. Answers: "how many outright or lease
+    // deals do we need per year to cover every fixed cost in the business?"
+    function renderBreakevenBanner(be) {
+        const bigBuyout  = document.getElementById('breakevenBuyoutValue');
+        const subBuyout  = document.getElementById('breakevenBuyoutSub');
+        const bigLease   = document.getElementById('breakevenLeaseValue');
+        const subLease   = document.getElementById('breakevenLeaseSub');
+        const formulaEl  = document.getElementById('breakevenFormula');
+        if (!bigBuyout) return;
+
+        const fmtUnits = (n) => {
+            if (!isFinite(n)) return '∞';
+            return Math.ceil(n).toLocaleString();
+        };
+        const fmtMonthly = (n) => {
+            if (!isFinite(n)) return '-';
+            return Math.ceil(n * 10) / 10;
+        };
+
+        if (be.buyoutMarginUSD > 0) {
+            bigBuyout.innerHTML = fmtUnits(be.buyoutUnitsYearly) + ' <span style="font-size:12px;color:#555;">台/年</span>';
+            bigBuyout.classList.remove('infeasible');
+            subBuyout.textContent = '≈ 月均 ' + fmtMonthly(be.buyoutUnitsMonthly) + ' 台';
+        } else {
+            bigBuyout.innerHTML = '无法保本';
+            bigBuyout.classList.add('infeasible');
+            subBuyout.textContent = '单台毛利 ≤ 0，卖越多亏越多';
+        }
+
+        if (be.leaseMarginUSD > 0) {
+            bigLease.innerHTML = fmtUnits(be.leaseUnitsYearly) + ' <span style="font-size:12px;color:#555;">单/年</span>';
+            bigLease.classList.remove('infeasible');
+            subLease.textContent = '≈ 月均 ' + fmtMonthly(be.leaseUnitsMonthly) + ' 单';
+        } else {
+            bigLease.innerHTML = '无法保本';
+            bigLease.classList.add('infeasible');
+            subLease.textContent = 'LTV 净 ≤ 0，租越多亏越多';
+        }
+
+        const parts = [];
+        parts.push('年度固定成本合计 <b>' + fmtMoney(be.annualFixedUSD) + '</b>');
+        parts.push('单台买断毛利 <b>' + fmtMoney(be.buyoutMarginUSD) + '</b>');
+        parts.push('单台租赁 LTV 净 <b>' + fmtMoney(be.leaseMarginUSD) + '</b>');
+        formulaEl.innerHTML = parts.join('<br>');
     }
 
     // Show what the customer actually pays once Sales Tax is added on top of the

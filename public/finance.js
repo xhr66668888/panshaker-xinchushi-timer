@@ -482,15 +482,44 @@
         return rows;
     }
 
+    // "保本线" — how many units of outright/lease we need per year to cover
+    // the whole annual fixed cost (opex × 12 + franchise + once-only customs +
+    // employee roster × 12 already folded into monthlyFixedOpex).
+    function computeBreakeven(scenario) {
+        const b = perUnitBuyout(scenario);
+        const l = perUnitLease(scenario);
+        const annualFixed = avgMonthlyFixedOpex(scenario) * 12
+            + num(scenario.tax?.franchiseTaxAnnualUSD)
+            + customOnceTotal(scenario);
+
+        const buyoutMargin = b.grossPerUnit;
+        const leaseMargin  = l.ltvNet;
+
+        const buyoutUnitsYearly = buyoutMargin > 0 ? annualFixed / buyoutMargin : Infinity;
+        const leaseUnitsYearly  = leaseMargin  > 0 ? annualFixed / leaseMargin  : Infinity;
+
+        return {
+            annualFixedUSD: annualFixed,
+            buyoutMarginUSD: buyoutMargin,
+            leaseMarginUSD: leaseMargin,
+            buyoutUnitsYearly,
+            leaseUnitsYearly,
+            buyoutUnitsMonthly: buyoutUnitsYearly === Infinity ? Infinity : buyoutUnitsYearly / 12,
+            leaseUnitsMonthly:  leaseUnitsYearly  === Infinity ? Infinity : leaseUnitsYearly  / 12
+        };
+    }
+
     function computeAll(scenario, cashflowMonths) {
         const months = Math.max(1, Math.min(60, num(cashflowMonths, 12)));
         const pnl = computePnl(scenario);
         const cashflow = computeCashflow(scenario, months);
         const kpi = computeKPIs(scenario, pnl, cashflow);
+        const breakeven = computeBreakeven(scenario);
         return {
             kpi,
             pnl,
             cashflow,
+            breakeven,
             buyoutRows: buildBuyoutRows(scenario, pnl),
             leaseRows:  buildLeaseRows(scenario, pnl),
             // Legacy aliases (for Excel export compatibility)
@@ -518,7 +547,7 @@
         toUSD, toCNY,
         computeLandedUnitCost, unitCostBreakdown,
         perUnitBuyout, perUnitLease,
-        computePnl, computeCashflow, computeKPIs, computeAll,
+        computePnl, computeCashflow, computeKPIs, computeBreakeven, computeAll,
         buildBuyoutRows, buildLeaseRows,
         effectiveCommissionRate, commissionBreakdown,
         avgMonthlyFixedOpex, monthlyFixedOpex,
