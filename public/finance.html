@@ -92,9 +92,31 @@
         }
         .field-row .hint { color: #666; font-size: 11px; margin-left: 6px; }
 
+        .ai-drawer-subtabs {
+            display: flex; gap: 2px; margin-bottom: 6px; border-bottom: 2px solid #808080;
+        }
+        .ai-drawer-subtabs button {
+            flex: 1; padding: 5px 8px; font-size: 11px; cursor: pointer;
+            border: 2px outset #dfdfdf; background: #c0c0c0; margin-bottom: -2px;
+        }
+        .ai-drawer-subtabs button.active {
+            background: #fff; border-bottom-color: #fff; font-weight: bold;
+        }
+        .ai-drawer-panel { display: none; }
+        .ai-drawer-panel.active { display: block; }
+        .ai-chat-log {
+            min-height: 140px; max-height: 280px; overflow-y: auto;
+            background: #fff; border: 2px inset #dfdfdf; padding: 6px; margin-bottom: 6px;
+            font-size: 12px;
+        }
+        .ai-chat-msg { margin-bottom: 8px; padding: 6px 8px; border-radius: 2px; white-space: pre-wrap; word-break: break-word; }
+        .ai-chat-msg.user { background: #d4e4ff; margin-left: 10px; border: 1px solid #8ac; }
+        .ai-chat-msg.assistant { background: #f5f5f5; margin-right: 10px; border: 1px inset #ccc; }
+        .ai-chat-msg .role { font-size: 10px; color: #666; margin-bottom: 2px; }
+
         .ai-drawer {
             position: fixed; top: 0; right: 0; bottom: 0;
-            width: 440px; max-width: 100%; background: #c0c0c0;
+            width: 460px; max-width: 100%; background: #c0c0c0;
             box-shadow: -4px 0 10px rgba(0,0,0,0.3);
             transform: translateX(100%); transition: transform 0.25s ease;
             z-index: 900; display: flex; flex-direction: column;
@@ -229,7 +251,7 @@
 </head>
 
 <body>
-<button id="langToggle" onclick="i18n.toggleLang()">EN</button>
+<button id="langToggle" onclick="financeToggleLang()">EN</button>
 
 <div class="page">
 
@@ -610,16 +632,38 @@
 <div class="ai-drawer" id="aiDrawer">
     <div class="window" style="flex:1;display:flex;flex-direction:column;">
         <div class="title-bar">
-            <div class="title-bar-text" data-i18n="aiTitle">AI 建议售价 (GLM-5.1 旗舰)</div>
+            <div class="title-bar-text" data-i18n="aiTitle">AI 经营助手</div>
             <div class="title-bar-controls"><button aria-label="Close" onclick="closeAiDrawer()"></button></div>
         </div>
         <div class="window-body" id="aiBody">
-            <div style="padding:6px;">
-                <p style="font-size:12px;" data-i18n="aiIntro">基于当前完整场景（成本/价格/税率/租赁政策/中美跨境提成/销量预测）与竞品信息，调用智谱 GLM-5.1 旗舰模型生成推荐定价。旗舰模型推理更深，通常 20-90 秒返回。</p>
-                <button onclick="callAi()" id="aiCallBtn" style="width:100%;padding:6px;" data-i18n="aiCallBtn">调用 AI 生成建议</button>
-                <div id="aiStatus" style="margin-top:6px;font-size:12px;color:#003366;"></div>
+            <div class="ai-drawer-subtabs">
+                <button type="button" class="active" id="aiSubTabStrategy" onclick="setAiDrawerTab('strategy')" data-i18n="aiTabStrategy">策略对话</button>
+                <button type="button" id="aiSubTabPricing" onclick="setAiDrawerTab('pricing')" data-i18n="aiTabPricing">定价建议</button>
             </div>
-            <div id="aiResult"></div>
+            <div id="aiPanelStrategy" class="ai-drawer-panel active" style="padding:4px 2px;">
+                <p style="font-size:11px;color:#333;margin:0 0 6px;" data-i18n="aiStrategyIntro">选择经营方法论（Skill），在对话中制定策略；可选附带当前财务场景摘要。</p>
+                <div class="field-row" style="margin-bottom:4px;">
+                    <label style="min-width:72px;" data-i18n="aiSkillLabel">方法论</label>
+                    <select id="aiSkillSelect" style="flex:1;font-size:11px;"></select>
+                </div>
+                <label style="font-size:11px;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                    <input type="checkbox" id="aiAttachScenario" checked>
+                    <span data-i18n="aiAttachScenario">附带当前场景摘要（精简 JSON）</span>
+                </label>
+                <div id="aiChatLog" class="ai-chat-log"></div>
+                <textarea id="aiChatInput" rows="3" style="width:100%;box-sizing:border-box;font-size:12px;margin-bottom:4px;" data-i18n-ph="aiChatPlaceholder"></textarea>
+                <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                    <button type="button" onclick="sendAiChat()" id="aiChatSendBtn" style="flex:1;padding:5px;" data-i18n="aiChatSend">发送</button>
+                    <button type="button" onclick="clearAiChat()" style="padding:5px;" data-i18n="aiChatClear">清空对话</button>
+                </div>
+                <div id="aiChatStatus" style="margin-top:6px;font-size:11px;color:#003366;"></div>
+            </div>
+            <div id="aiPanelPricing" class="ai-drawer-panel" style="padding:4px 2px;">
+                <p style="font-size:12px;" data-i18n="aiPricingIntro">基于当前完整场景（成本/价格/税率/租赁政策/中美跨境提成/销量预测）与竞品信息，调用智谱 GLM-5.1 旗舰模型生成推荐定价 JSON。通常 20–90 秒返回。</p>
+                <button onclick="callAi()" id="aiCallBtn" style="width:100%;padding:6px;" data-i18n="aiCallBtn">生成定价建议</button>
+                <div id="aiStatus" style="margin-top:6px;font-size:12px;color:#003366;"></div>
+                <div id="aiResult"></div>
+            </div>
         </div>
     </div>
 </div>
@@ -1534,8 +1578,175 @@
         } catch (e) { alert('导出失败: ' + e.message); }
     }
 
-    // ── AI ──
-    function openAiDrawer() { document.getElementById('aiDrawer').classList.add('open'); }
+    // ── AI 经营助手（策略对话 + 定价建议）──
+    let aiSkillsCache = null;
+    let aiChatMessages = [];
+
+    function financeToggleLang() {
+        i18n.toggleLang();
+        populateAiSkillSelect();
+    }
+
+    function setAiDrawerTab(which) {
+        const st = document.getElementById('aiSubTabStrategy');
+        const pr = document.getElementById('aiSubTabPricing');
+        const ps = document.getElementById('aiPanelStrategy');
+        const pp = document.getElementById('aiPanelPricing');
+        if (which === 'strategy') {
+            st.classList.add('active'); pr.classList.remove('active');
+            ps.classList.add('active'); pp.classList.remove('active');
+        } else {
+            pr.classList.add('active'); st.classList.remove('active');
+            pp.classList.add('active'); ps.classList.remove('active');
+        }
+    }
+
+    function populateAiSkillSelect() {
+        const sel = document.getElementById('aiSkillSelect');
+        if (!sel || !aiSkillsCache || !aiSkillsCache.length) return;
+        const cur = sel.value;
+        const lang = i18n.getLang();
+        sel.innerHTML = aiSkillsCache.map(s => {
+            const label = lang === 'en' ? (s.titleEn || s.titleZh) : s.titleZh;
+            return `<option value="${escapeAttr(s.id)}">${escapeHtml(label)}</option>`;
+        }).join('');
+        if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
+    }
+
+    async function ensureAiSkills() {
+        if (aiSkillsCache && aiSkillsCache.length) {
+            populateAiSkillSelect();
+            return;
+        }
+        const sel = document.getElementById('aiSkillSelect');
+        try {
+            const r = await fetch('/api/finance/ai-skills');
+            if (!r.ok) throw new Error(await r.text());
+            aiSkillsCache = await r.json();
+            populateAiSkillSelect();
+        } catch (e) {
+            console.error(e);
+            if (sel) sel.innerHTML = '<option value="">' + escapeHtml(i18n.t('aiSkillsLoadFailed')) + '</option>';
+        }
+    }
+
+    function renderAiChatLog() {
+        const log = document.getElementById('aiChatLog');
+        if (!log) return;
+        if (!aiChatMessages.length) {
+            log.innerHTML = '<div style="color:#888;font-size:11px;">' + escapeHtml(i18n.t('aiChatEmptyHint')) + '</div>';
+            return;
+        }
+        log.innerHTML = aiChatMessages.map(m => {
+            const cls = m.role === 'user' ? 'user' : 'assistant';
+            const lab = m.role === 'user' ? i18n.t('aiChatRoleUser') : i18n.t('aiChatRoleAssistant');
+            return `<div class="ai-chat-msg ${cls}"><div class="role">${escapeHtml(lab)}</div>${escapeHtml(m.content)}</div>`;
+        }).join('');
+        log.scrollTop = log.scrollHeight;
+    }
+
+    function clearAiChat() {
+        aiChatMessages = [];
+        const st = document.getElementById('aiChatStatus');
+        if (st) st.textContent = '';
+        renderAiChatLog();
+    }
+
+    async function sendAiChat() {
+        const skillId = document.getElementById('aiSkillSelect').value;
+        const input = document.getElementById('aiChatInput');
+        const text = (input.value || '').trim();
+        if (!skillId || !text) return alert(i18n.t('aiChatNeedInput'));
+        const btn = document.getElementById('aiChatSendBtn');
+        const statusEl = document.getElementById('aiChatStatus');
+        aiChatMessages.push({ role: 'user', content: text });
+        input.value = '';
+        renderAiChatLog();
+        btn.disabled = true;
+        const t0 = Date.now();
+        let tick = null;
+        const stopTick = () => { if (tick) { clearInterval(tick); tick = null; } };
+        const popLastUser = () => {
+            if (aiChatMessages.length && aiChatMessages[aiChatMessages.length - 1].role === 'user') aiChatMessages.pop();
+            renderAiChatLog();
+        };
+        tick = setInterval(() => {
+            statusEl.textContent = i18n.t('aiChatThinking') + ' (' + Math.floor((Date.now() - t0) / 1000) + 's)';
+        }, 500);
+        statusEl.textContent = i18n.t('aiChatThinking');
+        try {
+            const attach = document.getElementById('aiAttachScenario').checked;
+            const payload = {
+                skillId,
+                messages: aiChatMessages.slice(-20).map(m => ({ role: m.role, content: m.content })),
+                attachScenario: attach,
+                scenario: attach ? scenario : undefined
+            };
+            const kick = await fetch('/api/finance/ai-chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const kt = await kick.text();
+            let koj = null;
+            try { koj = JSON.parse(kt); } catch (_) {}
+            if (!kick.ok || !koj || !koj.jobId) {
+                stopTick();
+                popLastUser();
+                statusEl.textContent = '';
+                return alert(i18n.t('aiChatKickFail') + (koj && koj.error ? koj.error : kt.slice(0, 200)));
+            }
+            const jobId = koj.jobId;
+            const maxWaitMs = 5 * 60 * 1000;
+            while (Date.now() - t0 < maxWaitMs) {
+                await new Promise(r => setTimeout(r, 2000));
+                const poll = await fetch('/api/finance/ai-chat/' + encodeURIComponent(jobId));
+                if (poll.status === 404) {
+                    stopTick();
+                    popLastUser();
+                    statusEl.textContent = '';
+                    return alert(i18n.t('aiChatJobExpired'));
+                }
+                if (!poll.ok) continue;
+                const j = await poll.json();
+                if (j.status === 'running') continue;
+                stopTick();
+                if (j.status === 'error') {
+                    popLastUser();
+                    statusEl.textContent = '';
+                    return alert((j.error || 'Error') + (j.detail ? '\n' + String(j.detail).slice(0, 400) : ''));
+                }
+                if (j.status === 'done') {
+                    if (j.reply != null && String(j.reply).trim() !== '') {
+                        aiChatMessages.push({ role: 'assistant', content: j.reply });
+                        renderAiChatLog();
+                        statusEl.textContent = i18n.t('aiChatDone') + ' · ' + ((j.elapsedMs || (Date.now() - t0)) / 1000).toFixed(1) + 's';
+                        return;
+                    }
+                    statusEl.textContent = '';
+                    return alert(i18n.t('aiChatBadReply'));
+                }
+            }
+            stopTick();
+            popLastUser();
+            statusEl.textContent = '';
+            alert(i18n.t('aiChatTimeout'));
+        } catch (e) {
+            stopTick();
+            popLastUser();
+            statusEl.textContent = '';
+            alert(i18n.t('networkError') + ': ' + (e.message || String(e)));
+        } finally {
+            stopTick();
+            btn.disabled = false;
+        }
+    }
+
+    function openAiDrawer() {
+        document.getElementById('aiDrawer').classList.add('open');
+        void ensureAiSkills();
+        renderAiChatLog();
+    }
     function closeAiDrawer() { document.getElementById('aiDrawer').classList.remove('open'); }
 
     async function callAi() {
@@ -1582,7 +1793,7 @@
                 await new Promise(r => setTimeout(r, 2000));
                 const poll = await fetch('/api/finance/ai-suggest/' + encodeURIComponent(jobId));
                 if (poll.status === 404) {
-                    return fail('任务已过期', '请再次点击"调用 AI 生成建议"重新发起。');
+                    return fail('任务已过期', '请再次点击「' + i18n.t('aiCallBtn') + '」重新发起。');
                 }
                 if (!poll.ok) continue; // transient hiccup, keep polling
                 const j = await poll.json();
@@ -1761,6 +1972,7 @@
         window.location.href = 'login.html';
     }
 
+    renderAiChatLog();
     init();
 </script>
 </body>

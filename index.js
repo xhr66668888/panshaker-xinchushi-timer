@@ -1,6 +1,7 @@
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const fs = require('fs');
 const ExcelJS = require('exceljs');
 const app = express();
 const port = process.env.PORT || 5000;
@@ -31,6 +32,110 @@ setInterval(() => {
         if (now - job.createdAt > AI_JOB_TTL_MS) aiJobs.delete(id);
     }
 }, 60 * 1000);
+
+// ai-ceo skills (loaded from disk; body kept server-side for chat jobs only)
+const AI_SKILL_TITLE_ZH = {
+    'company-values': '价值观与文化',
+    'find-community': '寻找社区与切入点',
+    'mvp': '极简 MVP 路径',
+    'first-customers': '首批百客策略',
+    'processize': '从手工到流程化',
+    'grow-sustainably': '可持续增长决策',
+    'minimalist-review': '极简决策复盘',
+    'validate-idea': '商业想法验证',
+    'marketing-plan': '内容驱动的营销计划',
+    'pricing': '定价与收费策略'
+};
+const AI_SKILL_TITLE_EN = {
+    'company-values': 'Values & culture',
+    'find-community': 'Find your community',
+    'mvp': 'Minimal MVP path',
+    'first-customers': 'First 100 customers',
+    'processize': 'Manual to process',
+    'grow-sustainably': 'Sustainable growth',
+    'minimalist-review': 'Minimalist decision review',
+    'validate-idea': 'Validate the idea',
+    'marketing-plan': 'Content-led marketing plan',
+    'pricing': 'Pricing strategy'
+};
+const AI_CHAT_MAX_MESSAGES = 24;
+const AI_CHAT_MAX_MSG_CHARS = 8000;
+
+let aiSkillsList = [];
+
+function parseSkillMarkdownFile(text) {
+    const raw = String(text);
+    const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+    if (!m) return { name: '', description: '', body: raw.trim() };
+    const fm = m[1];
+    let name = '';
+    let description = '';
+    for (const line of fm.split(/\r?\n/)) {
+        if (line.startsWith('name:')) name = line.slice(5).trim();
+        if (line.startsWith('description:')) description = line.slice(12).trim();
+    }
+    return { name, description, body: m[2].trim() };
+}
+
+function loadAiSkillsFromDisk() {
+    const root = path.join(__dirname, 'ai-ceo');
+    const list = [];
+    if (!fs.existsSync(root)) {
+        aiSkillsList = [];
+        return;
+    }
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const id = entry.name;
+        const fp = path.join(root, id, 'SKILL.md');
+        if (!fs.existsSync(fp)) continue;
+        let text;
+        try {
+            text = fs.readFileSync(fp, 'utf8');
+        } catch (e) {
+            console.error('read skill', fp, e);
+            continue;
+        }
+        const parsed = parseSkillMarkdownFile(text);
+        list.push({
+            id,
+            name: parsed.name || id,
+            description: parsed.description || '',
+            titleZh: AI_SKILL_TITLE_ZH[id] || id,
+            titleEn: AI_SKILL_TITLE_EN[id] || id,
+            body: parsed.body
+        });
+    }
+    list.sort((a, b) => a.id.localeCompare(b.id));
+    aiSkillsList = list;
+}
+
+function financeLeanScenario(scenario) {
+    const s = scenario && typeof scenario === 'object' ? scenario : {};
+    return {
+        meta: s.meta,
+        product: s.product,
+        buyout: s.buyout,
+        lease: s.lease,
+        tax: s.tax,
+        customCosts: s.customCosts,
+        opexMonthlyAvgUSD: (() => {
+            const cats = s.opex?.categories || [];
+            let total = 0;
+            for (const c of cats) {
+                const arr = c.months || [];
+                for (const v of arr) total += Number(v) || 0;
+            }
+            return Math.round(total / 12);
+        })(),
+        forecast: {
+            buyoutMonthlyUnits: (s.forecast?.buyoutMonthlyUnits || []).slice(0, 12),
+            leaseMonthlyUnits: (s.forecast?.leaseMonthlyUnits || []).slice(0, 12)
+        }
+    };
+}
+
+loadAiSkillsFromDisk();
 
 app.use(express.static('public'));
 app.use(express.json({ limit: '5mb' }));
@@ -826,11 +931,13 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
     const jobId = 'ai_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
     const job = {
         id: jobId,
+        kind: 'pricing',
         status: 'running',
         createdAt: Date.now(),
         startedAt: Date.now(),
         elapsedMs: 0,
         suggestion: null,
+        reply: null,
         error: null,
         detail: null,
         finishReason: null,
@@ -853,11 +960,101 @@ app.post('/api/finance/ai-suggest', async (req, res) => {
 app.get('/api/finance/ai-suggest/:jobId', (req, res) => {
     const job = aiJobs.get(req.params.jobId);
     if (!job) return res.status(404).json({ error: '任务不存在或已过期，请重新发起' });
+    if (job.kind === 'chat') return res.status(404).json({ error: '任务类型不匹配' });
     const elapsedMs = job.status === 'running' ? Date.now() - job.startedAt : job.elapsedMs;
     res.json({
         jobId: job.id,
+        kind: job.kind || 'pricing',
         status: job.status,
         elapsedMs,
+        suggestion: job.suggestion,
+        reply: job.reply,
+        error: job.error,
+        detail: job.detail,
+        finishReason: job.finishReason,
+        usage: job.usage,
+        raw: job.raw,
+        model: job.model
+    });
+});
+
+// List ai-ceo skills (no full markdown body — client picks id for chat).
+app.get('/api/finance/ai-skills', (req, res) => {
+    if (!aiSkillsList.length) loadAiSkillsFromDisk();
+    res.json(aiSkillsList.map(({ body, ...rest }) => {
+        const { body: _b, ...pub } = rest;
+        return pub;
+    }));
+});
+
+// Strategy chat — async job + poll (same aiJobs store).
+app.post('/api/finance/ai-chat', async (req, res) => {
+    if (!aiSkillsList.length) loadAiSkillsFromDisk();
+    const body = req.body || {};
+    const skillId = String(body.skillId || '').trim();
+    const skill = aiSkillsList.find((s) => s.id === skillId);
+    if (!skill) return jsonErr(res, 400, '无效的 skillId');
+
+    let messages = body.messages;
+    if (!Array.isArray(messages) || messages.length === 0) {
+        return jsonErr(res, 400, '需要非空 messages 数组');
+    }
+    messages = messages
+        .filter((m) => m && (m.role === 'user' || m.role === 'assistant'))
+        .slice(-AI_CHAT_MAX_MESSAGES)
+        .map((m) => ({
+            role: m.role,
+            content: String(m.content || '').slice(0, AI_CHAT_MAX_MSG_CHARS)
+        }));
+    if (!messages.length || messages[messages.length - 1].role !== 'user') {
+        return jsonErr(res, 400, '最后一条消息须为 user');
+    }
+
+    if (body.attachScenario && body.scenario && typeof body.scenario === 'object') {
+        const lean = financeLeanScenario(body.scenario);
+        const last = messages[messages.length - 1];
+        last.content += '\n\n【当前场景(精简)】\n' + JSON.stringify(lean);
+    }
+
+    const jobId = 'ai_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+    const job = {
+        id: jobId,
+        kind: 'chat',
+        status: 'running',
+        createdAt: Date.now(),
+        startedAt: Date.now(),
+        elapsedMs: 0,
+        suggestion: null,
+        reply: null,
+        error: null,
+        detail: null,
+        finishReason: null,
+        usage: null,
+        raw: null,
+        model: GLM_MODEL
+    };
+    aiJobs.set(jobId, job);
+    const msgCopy = messages.map((m) => ({ role: m.role, content: m.content }));
+    runAiChatJob(job, skill, msgCopy).catch((err) => {
+        job.status = 'error';
+        job.error = 'AI worker 异常';
+        job.detail = String(err?.message || err);
+        job.elapsedMs = Date.now() - job.startedAt;
+    });
+    res.json({ jobId, status: 'running' });
+});
+
+app.get('/api/finance/ai-chat/:jobId', (req, res) => {
+    const job = aiJobs.get(req.params.jobId);
+    if (!job) return res.status(404).json({ error: '任务不存在或已过期，请重新发起' });
+    if (job.kind !== 'chat') return res.status(404).json({ error: '任务类型不匹配' });
+    const elapsedMs = job.status === 'running' ? Date.now() - job.startedAt : job.elapsedMs;
+    res.json({
+        jobId: job.id,
+        kind: 'chat',
+        status: job.status,
+        elapsedMs,
+        reply: job.reply,
         suggestion: job.suggestion,
         error: job.error,
         detail: job.detail,
@@ -928,28 +1125,7 @@ async function runAiJob(job, scenario) {
         '}'
     ].join('\n');
 
-    // Strip non-essential fields from scenario to reduce prompt tokens and latency.
-    const lean = {
-        meta: scenario.meta,
-        product: scenario.product,
-        buyout: scenario.buyout,
-        lease: scenario.lease,
-        tax: scenario.tax,
-        customCosts: scenario.customCosts,
-        opexMonthlyAvgUSD: (() => {
-            const cats = scenario.opex?.categories || [];
-            let total = 0;
-            for (const c of cats) {
-                const arr = c.months || [];
-                for (const v of arr) total += Number(v) || 0;
-            }
-            return Math.round(total / 12);
-        })(),
-        forecast: {
-            buyoutMonthlyUnits: (scenario.forecast?.buyoutMonthlyUnits || []).slice(0, 12),
-            leaseMonthlyUnits:  (scenario.forecast?.leaseMonthlyUnits  || []).slice(0, 12)
-        }
-    };
+    const lean = financeLeanScenario(scenario);
 
     try {
         const resp = await fetch(GLM_ENDPOINT, {
@@ -1074,6 +1250,99 @@ async function runAiJob(job, scenario) {
         const msg = String(err?.name === 'TimeoutError' || /abort|timeout/i.test(String(err?.message))
             ? 'AI 推理超时 (>4 min)，请稍后重试'
             : (err?.message || err));
+        job.status = 'error';
+        job.error = 'AI 请求异常';
+        job.detail = msg;
+        job.elapsedMs = Date.now() - job.startedAt;
+    }
+}
+
+async function runAiChatJob(job, skill, messages) {
+    const systemPrompt = [
+        '你是 Panshaker（美国 Delaware C-Corp，B2B 炒菜机器人「芯厨师」系列）的 AI 经营助手。',
+        '请严格遵循下方「经营 Skill 方法论」的框架与原则，帮助用户制定可落地的经营策略与下一步行动。',
+        '回答以简体中文为主；使用清晰的 Markdown（标题、有序/无序列表、加粗要点）。',
+        '不要编造用户未提供的数字；若用户附上「当前场景(精简)」JSON，请结合其中字段分析，但不得臆测缺失数据。',
+        '',
+        '【当前 Skill：' + skill.titleZh + ' / ' + skill.id + '】',
+        skill.body
+    ].join('\n');
+
+    try {
+        const resp = await fetch(GLM_ENDPOINT, {
+            method: 'POST',
+            headers: {
+                Authorization: 'Bearer ' + GLM_API_KEY,
+                'Content-Type': 'application/json',
+                Accept: 'text/event-stream'
+            },
+            body: JSON.stringify({
+                model: GLM_MODEL,
+                temperature: 0.35,
+                max_tokens: 8192,
+                stream: true,
+                messages: [{ role: 'system', content: systemPrompt }, ...messages]
+            }),
+            signal: AbortSignal.timeout(GLM_TIMEOUT_MS)
+        });
+
+        if (!resp.ok) {
+            const text = await resp.text().catch(() => '');
+            console.error('GLM chat error:', resp.status, text.slice(0, 500));
+            job.status = 'error';
+            job.error = 'AI 服务调用失败';
+            job.detail = 'HTTP ' + resp.status + ' ' + text.slice(0, 500);
+            job.elapsedMs = Date.now() - job.startedAt;
+            return;
+        }
+
+        let content = '';
+        let finishReason = null;
+        let usage = null;
+        const decoder = new TextDecoder();
+        let buffer = '';
+        try {
+            for await (const chunk of resp.body) {
+                buffer += decoder.decode(chunk, { stream: true });
+                let nl;
+                while ((nl = buffer.indexOf('\n')) !== -1) {
+                    const line = buffer.slice(0, nl).trim();
+                    buffer = buffer.slice(nl + 1);
+                    if (!line.startsWith('data:')) continue;
+                    const data = line.slice(5).trim();
+                    if (!data || data === '[DONE]') continue;
+                    try {
+                        const parsed = JSON.parse(data);
+                        const delta = parsed.choices?.[0]?.delta;
+                        if (delta?.content) content += delta.content;
+                        if (parsed.choices?.[0]?.finish_reason) finishReason = parsed.choices[0].finish_reason;
+                        if (parsed.usage) usage = parsed.usage;
+                    } catch (_) { /* skip */ }
+                }
+            }
+        } catch (streamErr) {
+            console.error('GLM chat stream error:', streamErr);
+            job.status = 'error';
+            job.error = 'AI 流式读取异常 (可能超时)';
+            job.detail = String(streamErr?.message || streamErr);
+            job.raw = content.slice(0, 2000);
+            job.elapsedMs = Date.now() - job.startedAt;
+            return;
+        }
+
+        job.status = 'done';
+        job.reply = content.trim();
+        job.finishReason = finishReason;
+        job.usage = usage;
+        job.raw = content.slice(0, 2000);
+        job.elapsedMs = Date.now() - job.startedAt;
+    } catch (err) {
+        console.error('GLM chat fetch error:', err);
+        const msg = String(
+            err?.name === 'TimeoutError' || /abort|timeout/i.test(String(err?.message))
+                ? 'AI 推理超时 (>4 min)，请稍后重试'
+                : err?.message || err
+        );
         job.status = 'error';
         job.error = 'AI 请求异常';
         job.detail = msg;
