@@ -642,9 +642,11 @@
             </div>
             <div id="aiPanelStrategy" class="ai-drawer-panel active" style="padding:4px 2px;">
                 <p style="font-size:11px;color:#333;margin:0 0 6px;" data-i18n="aiStrategyIntro">选择经营方法论（Skill），在对话中制定策略；可选附带当前财务场景摘要。</p>
-                <div class="field-row" style="margin-bottom:4px;">
+                <div id="aiSkillsLoadHint" style="display:none;font-size:10px;color:#900;margin:0 0 6px;white-space:pre-wrap;line-height:1.35;"></div>
+                <div class="field-row" style="margin-bottom:4px;align-items:center;">
                     <label style="min-width:72px;" data-i18n="aiSkillLabel">方法论</label>
                     <select id="aiSkillSelect" style="flex:1;font-size:11px;"></select>
+                    <button type="button" onclick="retryLoadAiSkills()" style="margin-left:4px;padding:3px 8px;font-size:11px;" data-i18n="aiSkillsRetry">重试加载</button>
                 </div>
                 <label style="font-size:11px;display:flex;align-items:center;gap:6px;margin-bottom:6px;">
                     <input type="checkbox" id="aiAttachScenario" checked>
@@ -1603,7 +1605,11 @@
 
     function populateAiSkillSelect() {
         const sel = document.getElementById('aiSkillSelect');
-        if (!sel || !aiSkillsCache || !aiSkillsCache.length) return;
+        if (!sel || aiSkillsCache == null) return;
+        if (!aiSkillsCache.length) {
+            sel.innerHTML = '<option value="">' + escapeHtml(i18n.t('aiSkillsEmptyDeploy')) + '</option>';
+            return;
+        }
         const cur = sel.value;
         const lang = i18n.getLang();
         sel.innerHTML = aiSkillsCache.map(s => {
@@ -1613,20 +1619,52 @@
         if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
     }
 
-    async function ensureAiSkills() {
-        if (aiSkillsCache && aiSkillsCache.length) {
+    function setAiSkillsHint(visible, text) {
+        const el = document.getElementById('aiSkillsLoadHint');
+        if (!el) return;
+        el.style.display = visible ? 'block' : 'none';
+        el.textContent = text || '';
+    }
+
+    function retryLoadAiSkills() {
+        aiSkillsCache = null;
+        void ensureAiSkills(true);
+    }
+
+    async function ensureAiSkills(force) {
+        const sel = document.getElementById('aiSkillSelect');
+        if (!force && aiSkillsCache && aiSkillsCache.length) {
             populateAiSkillSelect();
+            setAiSkillsHint(false);
             return;
         }
-        const sel = document.getElementById('aiSkillSelect');
+        if (sel) sel.innerHTML = '<option value="">' + escapeHtml(i18n.t('aiSkillsLoading')) + '</option>';
+        setAiSkillsHint(false, '');
+        const fetchList = async () => {
+            const r = await fetch('/api/finance/ai-skills', { cache: 'no-store' });
+            const txt = await r.text();
+            let data = null;
+            try { data = JSON.parse(txt); } catch (_) {}
+            if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + txt.slice(0, 160));
+            if (!Array.isArray(data)) throw new Error(String(txt).slice(0, 160));
+            return data;
+        };
         try {
-            const r = await fetch('/api/finance/ai-skills');
-            if (!r.ok) throw new Error(await r.text());
-            aiSkillsCache = await r.json();
+            let data = await fetchList();
+            if (!data.length) {
+                await new Promise(r => setTimeout(r, 400));
+                data = await fetchList();
+            }
+            aiSkillsCache = data;
             populateAiSkillSelect();
+            if (!aiSkillsCache.length) {
+                setAiSkillsHint(true, i18n.t('aiSkillsEmptyDeploy'));
+            }
         } catch (e) {
-            console.error(e);
+            console.error('ensureAiSkills', e);
+            aiSkillsCache = null;
             if (sel) sel.innerHTML = '<option value="">' + escapeHtml(i18n.t('aiSkillsLoadFailed')) + '</option>';
+            setAiSkillsHint(true, i18n.t('aiSkillsLoadHint') + (e.message ? '\n' + e.message : ''));
         }
     }
 
@@ -1744,7 +1782,7 @@
 
     function openAiDrawer() {
         document.getElementById('aiDrawer').classList.add('open');
-        void ensureAiSkills();
+        void ensureAiSkills(false);
         renderAiChatLog();
     }
     function closeAiDrawer() { document.getElementById('aiDrawer').classList.remove('open'); }

@@ -78,36 +78,44 @@ function parseSkillMarkdownFile(text) {
 }
 
 function loadAiSkillsFromDisk() {
-    const root = path.join(__dirname, 'ai-ceo');
+    const roots = [
+        path.join(__dirname, 'ai-ceo'),
+        path.join(__dirname, 'public', 'ai-ceo')
+    ];
     const list = [];
-    if (!fs.existsSync(root)) {
-        aiSkillsList = [];
-        return;
-    }
-    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue;
-        const id = entry.name;
-        const fp = path.join(root, id, 'SKILL.md');
-        if (!fs.existsSync(fp)) continue;
-        let text;
-        try {
-            text = fs.readFileSync(fp, 'utf8');
-        } catch (e) {
-            console.error('read skill', fp, e);
-            continue;
+    const seen = new Set();
+    for (const root of roots) {
+        if (!fs.existsSync(root)) continue;
+        for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue;
+            const id = entry.name;
+            if (seen.has(id)) continue;
+            const fp = path.join(root, id, 'SKILL.md');
+            if (!fs.existsSync(fp)) continue;
+            let text;
+            try {
+                text = fs.readFileSync(fp, 'utf8');
+            } catch (e) {
+                console.error('read skill', fp, e);
+                continue;
+            }
+            const parsed = parseSkillMarkdownFile(text);
+            seen.add(id);
+            list.push({
+                id,
+                name: parsed.name || id,
+                description: parsed.description || '',
+                titleZh: AI_SKILL_TITLE_ZH[id] || id,
+                titleEn: AI_SKILL_TITLE_EN[id] || id,
+                body: parsed.body
+            });
         }
-        const parsed = parseSkillMarkdownFile(text);
-        list.push({
-            id,
-            name: parsed.name || id,
-            description: parsed.description || '',
-            titleZh: AI_SKILL_TITLE_ZH[id] || id,
-            titleEn: AI_SKILL_TITLE_EN[id] || id,
-            body: parsed.body
-        });
     }
     list.sort((a, b) => a.id.localeCompare(b.id));
     aiSkillsList = list;
+    if (!list.length) {
+        console.warn('[ai-skills] No SKILL.md found under ai-ceo/ or public/ai-ceo/ (relative to', __dirname + ')');
+    }
 }
 
 function financeLeanScenario(scenario) {
@@ -980,16 +988,13 @@ app.get('/api/finance/ai-suggest/:jobId', (req, res) => {
 
 // List ai-ceo skills (no full markdown body — client picks id for chat).
 app.get('/api/finance/ai-skills', (req, res) => {
-    if (!aiSkillsList.length) loadAiSkillsFromDisk();
-    res.json(aiSkillsList.map(({ body, ...rest }) => {
-        const { body: _b, ...pub } = rest;
-        return pub;
-    }));
+    loadAiSkillsFromDisk();
+    res.json(aiSkillsList.map(({ body, ...pub }) => pub));
 });
 
 // Strategy chat — async job + poll (same aiJobs store).
 app.post('/api/finance/ai-chat', async (req, res) => {
-    if (!aiSkillsList.length) loadAiSkillsFromDisk();
+    loadAiSkillsFromDisk();
     const body = req.body || {};
     const skillId = String(body.skillId || '').trim();
     const skill = aiSkillsList.find((s) => s.id === skillId);
